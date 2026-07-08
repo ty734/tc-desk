@@ -66,6 +66,24 @@ export default function TicketModal({
   const [replyError, setReplyError] = useState<string | null>(null);
   const [canned, setCanned] = useState<{ id: string; title: string; body: string }[] | null>(null);
   const [cannedOpen, setCannedOpen] = useState(false);
+  const [shopify, setShopify] = useState<{
+    configured: boolean;
+    noEmail?: boolean;
+    error?: string;
+    storeHandle?: string;
+    orders: {
+      name: string;
+      legacyResourceId: string;
+      createdAt: string;
+      fulfillmentStatus: string;
+      financialStatus: string;
+      total: string;
+      currency: string;
+      lineItems: { title: string; quantity: number }[];
+      tracking: { company: string | null; number: string | null; url: string | null }[];
+      statusPageUrl: string | null;
+    }[];
+  } | null>(null);
   const [newNote, setNewNote] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
@@ -90,6 +108,23 @@ export default function TicketModal({
       cancelled = true;
     };
   }, [ticket.id]);
+
+  // Shopify order lookup — re-runs if the customer email is edited.
+  useEffect(() => {
+    let cancelled = false;
+    setShopify(null);
+    fetch(`/api/tickets/${ticket.id}/shopify`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setShopify(data);
+      })
+      .catch(() => {
+        if (!cancelled) setShopify({ configured: true, error: "Shopify lookup failed.", orders: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket.id, ticket.customerEmail]);
 
   function setFieldValue(fieldId: string, optionId: string | null) {
     const next = ticket.fieldValues.filter((fv) => fv.fieldId !== fieldId);
@@ -202,9 +237,10 @@ export default function TicketModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_320px]"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="min-w-0">
         {/* Header */}
         <div className="flex items-center gap-3 px-6 pt-5">
           <ChannelBadge channel={ticket.channel} />
@@ -531,8 +567,98 @@ export default function TicketModal({
             </button>
           </form>
         </div>
+        </div>
+
+        {/* Shopify order sidebar (spec §8, read-only) */}
+        <aside className="border-t lg:border-t-0 lg:border-l border-violet-100 bg-violet-50/50 px-5 py-5">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-violet-900/70 mb-3">
+            Shopify orders
+          </h4>
+          {shopify === null ? (
+            <p className="text-sm text-gray-400">Loading…</p>
+          ) : !shopify.configured ? (
+            <p className="text-sm text-gray-400">Shopify isn&apos;t connected for this inbox yet.</p>
+          ) : shopify.noEmail ? (
+            <p className="text-sm text-gray-400">Add a customer email to look up their orders.</p>
+          ) : shopify.error ? (
+            <p className="text-sm text-red-600">{shopify.error}</p>
+          ) : shopify.orders.length === 0 ? (
+            <p className="text-sm text-gray-400">No orders found for this customer.</p>
+          ) : (
+            <div className="space-y-3">
+              {shopify.orders.map((o) => (
+                <div key={o.name} className="bg-white rounded-xl border border-violet-100 shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-3">
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`https://admin.shopify.com/store/${shopify.storeHandle}/orders/${o.legacyResourceId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-sm text-violet-800 hover:underline"
+                      title="Open in Shopify admin"
+                    >
+                      {o.name}
+                    </a>
+                    <span className="flex-1" />
+                    <span className="text-xs text-gray-400">
+                      {new Date(o.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                  <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+                    <OrderStatusChip label={o.fulfillmentStatus} />
+                    <OrderStatusChip label={o.financialStatus} />
+                    <span className="text-xs font-semibold text-gray-700 ml-auto">
+                      ${Number(o.total).toFixed(2)} {o.currency !== "USD" ? o.currency : ""}
+                    </span>
+                  </div>
+                  <ul className="mt-2 space-y-0.5">
+                    {o.lineItems.map((li, i) => (
+                      <li key={i} className="text-xs text-gray-600 truncate">
+                        {li.quantity}× {li.title}
+                      </li>
+                    ))}
+                  </ul>
+                  {o.tracking.filter((t) => t.number).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {o.tracking
+                        .filter((t) => t.number)
+                        .map((t, i) => (
+                          <a
+                            key={i}
+                            href={t.url ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-xs font-medium text-violet-700 hover:underline truncate"
+                          >
+                            🚚 {t.company ?? "Tracking"}: {t.number}
+                          </a>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
       </div>
     </div>
+  );
+}
+
+function OrderStatusChip({ label }: { label: string }) {
+  const good = ["FULFILLED", "PAID"].includes(label);
+  const warn = ["UNFULFILLED", "PARTIALLY_FULFILLED", "PENDING", "PARTIALLY_PAID"].includes(label);
+  return (
+    <span
+      className={`inline-block text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 ${
+        good
+          ? "bg-violet-100 text-violet-900"
+          : warn
+            ? "bg-amber-100 text-amber-800"
+            : "bg-gray-100 text-gray-600"
+      }`}
+    >
+      {label.replace(/_/g, " ").toLowerCase()}
+    </span>
   );
 }
 
