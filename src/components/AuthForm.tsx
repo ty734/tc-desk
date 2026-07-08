@@ -44,11 +44,10 @@ export default function AuthForm({
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-violet-700 text-white text-2xl font-bold mb-3">
-            D
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icon-192.png" alt="Living Well" className="w-14 h-14 mx-auto mb-3" />
           <h1 className="text-2xl font-bold">
-            {mode === "login" ? "Log in to TC Desk" : firstUser ? "Set up your account" : "Join TC Desk"}
+            {mode === "login" ? "Log in to Living Well Desk" : firstUser ? "Set up your account" : "Join Living Well Desk"}
           </h1>
           {mode === "register" && firstUser && (
             <p className="text-sm text-gray-500 mt-1">You&apos;re the first user — this becomes the admin account.</p>

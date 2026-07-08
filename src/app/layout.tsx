@@ -2,17 +2,17 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TC Desk",
-  description: "Customer support desk",
+  title: "Living Well Desk",
+  description: "Living Well customer support desk",
   appleWebApp: {
     capable: true,
-    title: "TC Desk",
+    title: "Living Well Desk",
     statusBarStyle: "default",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#7c3aed",
+  themeColor: "#6E9277",
 };
 
 export default function RootLayout({

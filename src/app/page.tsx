@@ -35,10 +35,9 @@ export default async function Home() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-violet-700 text-white flex items-center justify-center text-lg font-bold">
-              D
-            </div>
-            <h1 className="text-lg font-bold">TC Desk</h1>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon-192.png" alt="Living Well" className="w-9 h-9" />
+            <h1 className="text-lg font-bold">Living Well Desk</h1>
           </div>
           <HomeActions userName={user.name} />
         </div>

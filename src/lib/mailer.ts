@@ -77,7 +77,7 @@ export async function sendCustomerEmail(mail: CustomerMail): Promise<CustomerSen
 // Resend as fallback, console in bare local dev.
 export async function sendEmail({ to, subject, html }: Mail) {
   const postmarkToken = process.env.POSTMARK_SERVER_TOKEN;
-  const from = process.env.EMAIL_FROM ?? "TC Desk <support@livingwellwithdrmichelle.com>";
+  const from = process.env.EMAIL_FROM ?? "Living Well Desk <support@livingwellwithdrmichelle.com>";
 
   if (postmarkToken) {
     try {
@@ -131,12 +131,12 @@ const appUrl = () => process.env.APP_URL ?? "http://localhost:3000";
 function layout(body: string) {
   return `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1e1f21">
     ${body}
-    <p style="color:#9ca3af;font-size:12px;margin-top:32px">Sent by TC Desk</p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:32px">Sent by Living Well Desk</p>
   </div>`;
 }
 
 function button(href: string, label: string) {
-  return `<a href="${href}" style="display:inline-block;background:#6d28d9;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600">${label}</a>`;
+  return `<a href="${href}" style="display:inline-block;background:#6E9277;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600">${label}</a>`;
 }
 
 export function sendInviteEmail(opts: {
@@ -146,10 +146,10 @@ export function sendInviteEmail(opts: {
   token: string;
 }) {
   const link = `${appUrl()}/register?token=${opts.token}`;
-  const where = opts.boardName ? `the inbox <b>${opts.boardName}</b>` : "the team's TC Desk";
+  const where = opts.boardName ? `the inbox <b>${opts.boardName}</b>` : "the team's Living Well Desk";
   return sendEmail({
     to: opts.to,
-    subject: `${opts.inviterName} invited you to ${opts.boardName ?? "TC Desk"}`,
+    subject: `${opts.inviterName} invited you to ${opts.boardName ?? "Living Well Desk"}`,
     html: layout(
       `<h2>You're invited</h2>
        <p><b>${opts.inviterName}</b> invited you to join ${where}.</p>
@@ -228,7 +228,7 @@ export function sendPasswordResetEmail(opts: { to: string; token: string }) {
   const link = `${appUrl()}/reset?token=${opts.token}`;
   return sendEmail({
     to: opts.to,
-    subject: "Reset your TC Desk password",
+    subject: "Reset your Living Well Desk password",
     html: layout(
       `<h2>Password reset</h2>
        <p>Click the button below to choose a new password. This link works once and expires in 1 hour.</p>

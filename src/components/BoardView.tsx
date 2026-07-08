@@ -211,7 +211,7 @@ function Column({
       <div
         ref={setNodeRef}
         className={`flex-1 overflow-y-auto rounded-2xl p-2.5 space-y-2.5 transition-colors ${
-          isOver ? "bg-violet-100" : "bg-[#eceef1]"
+          isOver ? "bg-violet-200" : "bg-[#EAF0EC]"
         }`}
       >
         <SortableContext items={visible.map((t) => t.id)} strategy={verticalListSortingStrategy}>
@@ -626,7 +626,7 @@ export default function BoardView({
     <div className="flex flex-col h-screen">
       <header className="bg-white border-b border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] px-5 py-3.5 flex items-center gap-4 shrink-0">
         <Link href="/" className="text-gray-400 hover:text-gray-700 font-medium text-sm">
-          ← TC Desk
+          ← Desk
         </Link>
         {editingName && isOwner ? (
           <input

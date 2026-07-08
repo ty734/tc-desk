@@ -39,7 +39,7 @@ export default async function MyTicketsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-4">
           <Link href="/" className="text-gray-400 hover:text-gray-700 font-medium text-sm">
-            ← TC Desk
+            ← Desk
           </Link>
           <h1 className="text-lg font-bold">My Tickets</h1>
           <span className="text-sm text-gray-500">

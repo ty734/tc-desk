@@ -35,7 +35,7 @@ export function ChannelBadge({ channel }: { channel: string }) {
   );
 }
 
-const AVATAR_COLORS = ["#7c3aed", "#0891b2", "#db2777", "#ca8a04", "#16a34a", "#dc2626", "#2563eb"];
+const AVATAR_COLORS = ["#6E9277", "#2E4959", "#D6A35D", "#7FA088", "#29404E", "#A9746E", "#557361"];
 
 export function Avatar({ name, size = 24 }: { name: string; size?: number }) {
   const initials = name

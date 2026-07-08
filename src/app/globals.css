@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/* Living Well brand mapping (core/brand-style.md):
+   The app's accent utilities (violet-*) are remapped to the LW palette so the
+   whole UI carries the brand — sage #6E9277 for primary actions, dark teal
+   #2E4959 for hovers/secondary, deep navy #29404E for strong text, and the
+   light sage mint #EAF0EC as the surface tint. fuchsia-500 (used in the home
+   gradient) maps to teal so gradients run sage → teal. */
+@theme {
+  --color-violet-50: #f2f6f3;
+  --color-violet-100: #eaf0ec;
+  --color-violet-200: #d5e2d9;
+  --color-violet-300: #aec7b6;
+  --color-violet-400: #8fae98;
+  --color-violet-500: #7fa088;
+  --color-violet-600: #6e9277;
+  --color-violet-700: #6e9277;
+  --color-violet-800: #2e4959;
+  --color-violet-900: #29404e;
+  --color-violet-950: #1d2e38;
+  --color-fuchsia-500: #2e4959;
+}
+
 :root {
   color-scheme: light;
 }
@@ -10,11 +31,18 @@ html {
 }
 
 body {
-  background: #f4f5f7;
-  color: #1e1f21;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+  background: #f6f8f6;
+  color: rgba(28, 28, 28, 0.87);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2 {
+  color: #29404e;
+  letter-spacing: 0.01em;
 }
 
 /* Slim scrollbars for the horizontal board scroll */
@@ -22,7 +50,7 @@ body {
   height: 10px;
 }
 .board-scroll::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #cfdcd3;
   border-radius: 6px;
 }
 .board-scroll::-webkit-scrollbar-track {
