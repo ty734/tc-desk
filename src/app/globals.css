@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+/* Slightly larger base size — every rem-based (Tailwind) size scales with this. */
+html {
+  font-size: 17px;
+}
+
+body {
+  background: #f4f5f7;
+  color: #1e1f21;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slim scrollbars for the horizontal board scroll */
+.board-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+.board-scroll::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 6px;
+}
+.board-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

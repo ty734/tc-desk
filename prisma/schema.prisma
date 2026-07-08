@@ -1,0 +1,261 @@
+// TC Desk schema — Postgres (Neon), database `tc_desk`.
+// DATABASE_URL is the pooled (pgbouncer) URL for runtime;
+// DIRECT_URL is the direct connection Prisma Migrate needs.
+//
+// Multi-brand by design: one deployment serves many Inboxes (Living Well now,
+// Longer Together next). Adding a brand is a data change, not a code change.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
+}
+
+model User {
+  id              String          @id @default(cuid())
+  email           String          @unique
+  name            String
+  passwordHash    String
+  createdAt       DateTime        @default(now())
+  sessions        Session[]
+  memberships     BoardMember[]
+  assignedTickets Ticket[]        @relation("assignee")
+  comments        Comment[]
+  messages        Message[]
+  invitesSent     Invite[]
+  passwordResets  PasswordReset[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  email       String
+  boardId     String?
+  board       Board?    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  invitedById String
+  invitedBy   User      @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// Each brand's support operation. The inbox owns its support address, sending
+// identity, Shopify store, and bot knowledge base. One board per inbox.
+model Inbox {
+  id            String    @id @default(cuid())
+  brand         String    @unique // "living-well" | "longer-together"
+  name          String // "Living Well Support"
+  supportEmail  String // support@livingwellwithdrmichelle.com
+  fromName      String // "Living Well Support"
+  sendingDomain String // domain authenticated in Postmark
+  inboundToken  String    @unique // maps Postmark inbound server/stream → this inbox
+  shopifyDomain String // this brand's Shopify store
+  shopifyToken  String // Admin API token (env-ref/encrypted; placeholder until Phase D)
+  boardId       String    @unique // the board that holds this inbox's tickets
+  board         Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  tickets       Ticket[]
+  kbChunks      KbChunk[]
+}
+
+model Board {
+  id        String        @id @default(cuid())
+  name      String
+  position  Float         @default(0)
+  archived  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  columns   Column[]
+  members   BoardMember[]
+  fields    CustomField[]
+  tickets   Ticket[]
+  invites   Invite[]
+  inbox     Inbox?
+}
+
+model BoardMember {
+  boardId String
+  userId  String
+  role    String @default("member") // "owner" | "member"
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([boardId, userId])
+}
+
+model Column {
+  id       String   @id @default(cuid())
+  boardId  String
+  name     String
+  position Float    @default(0)
+  board    Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tickets  Ticket[]
+}
+
+model Ticket {
+  id              String             @id @default(cuid())
+  inboxId         String // which brand/inbox this ticket belongs to
+  boardId         String
+  columnId        String // = status column
+  subject         String
+  position        Float              @default(0)
+  channel         String             @default("email") // email | amazon | chat | ig | fb
+  status          String             @default("new") // mirror of column for querying: new|open|pending|solved|closed
+  customerId      String?
+  customerEmail   String?
+  customerName    String?
+  amazonRelayAddr String? // per-thread reply address for the Amazon channel
+  replyToken      String             @unique @default(cuid()) // tokenized Reply-To for bulletproof matching
+  assigneeId      String?
+  lastMessageAt   DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  inbox           Inbox              @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  board           Board              @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  column          Column             @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  assignee        User?              @relation("assignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  customer        Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  messages        Message[]
+  comments        Comment[]
+  fieldValues     TicketFieldValue[]
+
+  @@index([boardId])
+  @@index([inboxId])
+  @@index([status])
+  @@index([customerEmail])
+}
+
+// The customer-visible conversation. Every Message is (or will be) an email —
+// NEVER confuse with Comment, which is internal-only.
+model Message {
+  id                String       @id @default(cuid())
+  ticketId          String
+  direction         String // inbound | outbound
+  authorId          String? // agent User for outbound; null for inbound
+  fromAddr          String
+  toAddr            String
+  subject           String?
+  bodyHtml          String?
+  bodyText          String?
+  messageIdHeader   String? // RFC Message-ID we generated (outbound) or theirs (inbound)
+  inReplyTo         String?
+  references        String? // space-joined chain
+  provider          String       @default("postmark")
+  providerMessageId String?
+  createdAt         DateTime     @default(now())
+  ticket            Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author            User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  attachments       Attachment[]
+
+  @@index([ticketId])
+  @@index([messageIdHeader])
+}
+
+model Customer {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String?
+  shopifyCustomerId String?
+  createdAt         DateTime @default(now())
+  tickets           Ticket[]
+}
+
+model Attachment {
+  id          String  @id @default(cuid())
+  messageId   String
+  filename    String
+  contentType String
+  blobUrl     String
+  sizeBytes   Int?
+  message     Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+// Macros / canned replies
+model CannedReply {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+}
+
+// Bot knowledge base (pgvector). The embedding column is untyped `vector` so
+// the dimension can be fixed in Phase E when the embedding model is chosen.
+// Query with raw SQL cosine distance; Prisma treats it as Unsupported.
+model KbChunk {
+  id        String                 @id @default(cuid())
+  inboxId   String // KB is per-brand; the widget queries its own inbox's chunks
+  source    String // url or doc name
+  title     String?
+  content   String
+  embedding Unsupported("vector")?
+  createdAt DateTime               @default(now())
+  inbox     Inbox                  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+
+  @@index([inboxId])
+}
+
+model CustomField {
+  id       String             @id @default(cuid())
+  boardId  String
+  name     String
+  type     String             @default("select") // "select" | "text" | "number" | "date"
+  position Float              @default(0)
+  board    Board              @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  options  FieldOption[]
+  values   TicketFieldValue[]
+}
+
+model FieldOption {
+  id       String             @id @default(cuid())
+  fieldId  String
+  label    String
+  color    String             @default("gray")
+  position Float              @default(0)
+  field    CustomField        @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  values   TicketFieldValue[]
+}
+
+model TicketFieldValue {
+  ticketId  String
+  fieldId   String
+  optionId  String?
+  textValue String?
+  ticket    Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  field     CustomField  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  option    FieldOption? @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, fieldId])
+}
+
+// INTERNAL notes only — shown in-app, never emailed to the customer.
+// Customer-visible email lives in Message.
+model Comment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
