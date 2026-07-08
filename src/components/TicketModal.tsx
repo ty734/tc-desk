@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { TicketData, CommentData, FieldData, Member } from "@/lib/types";
+import type { TicketData, CommentData, MessageData, FieldData, Member } from "@/lib/types";
 import { Avatar, ChannelBadge, Chip } from "@/components/ui";
 import { optionColor } from "@/lib/colors";
 
@@ -59,6 +59,7 @@ export default function TicketModal({
   const [customerName, setCustomerName] = useState(ticket.customerName ?? "");
   const [customerEmail, setCustomerEmail] = useState(ticket.customerEmail ?? "");
   const [notes, setNotes] = useState<CommentData[]>([]);
+  const [messages, setMessages] = useState<MessageData[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -76,6 +77,7 @@ export default function TicketModal({
               (c: { id: string; body: string; createdAt: string; author: { id: string; name: string } }) => c
             )
           );
+          setMessages(data.ticket.messages ?? []);
           setNotesLoaded(true);
         }
       });
@@ -263,11 +265,70 @@ export default function TicketModal({
           })}
         </div>
 
-        {/* Conversation placeholder (Phase B/C: inbound thread + reply composer live here) */}
+        {/* Customer conversation — the email thread. Reply composer arrives in
+            Phase C as a clearly separate, non-amber input. */}
         <div className="px-6 pb-4">
-          <div className="border border-gray-200 rounded-lg p-3 text-sm text-gray-400 bg-gray-50">
-            Customer conversation appears here once email is connected (Phase B).
-          </div>
+          <h4 className="text-sm font-semibold text-gray-600 mb-2">Conversation</h4>
+          {messages.length === 0 ? (
+            <div className="border border-gray-200 rounded-lg p-3 text-sm text-gray-400 bg-gray-50">
+              No email on this ticket yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={`rounded-lg border p-3 ${
+                    m.direction === "inbound"
+                      ? "bg-white border-gray-200 border-l-4 border-l-sky-400"
+                      : "bg-violet-50 border-violet-200 border-l-4 border-l-violet-500"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs text-gray-500 mb-1.5">
+                    <span
+                      className={`font-semibold uppercase tracking-wide text-[10px] rounded px-1.5 py-0.5 ${
+                        m.direction === "inbound"
+                          ? "bg-sky-100 text-sky-800"
+                          : "bg-violet-100 text-violet-800"
+                      }`}
+                    >
+                      {m.direction === "inbound" ? "Customer" : "Reply"}
+                    </span>
+                    <span className="font-medium text-gray-700">
+                      {m.direction === "inbound" ? m.fromAddr : m.author?.name ?? m.fromAddr}
+                    </span>
+                    <span className="flex-1" />
+                    <span>
+                      {new Date(m.createdAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {m.bodyText || "(no text body)"}
+                  </p>
+                  {m.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {m.attachments.map((a) => (
+                        <a
+                          key={a.id}
+                          href={a.blobUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded px-2 py-1 hover:bg-violet-100"
+                        >
+                          📎 {a.filename}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* INTERNAL NOTES — amber styling makes it unmistakable these never

@@ -11,6 +11,19 @@ export type FieldData = {
   options: FieldOptionData[];
 };
 
+// Customer-visible email in the ticket thread.
+export type MessageData = {
+  id: string;
+  direction: string; // inbound | outbound
+  fromAddr: string;
+  toAddr: string;
+  subject: string | null;
+  bodyText: string | null;
+  createdAt: string;
+  author: { id: string; name: string } | null;
+  attachments: { id: string; filename: string; contentType: string; blobUrl: string; sizeBytes: number | null }[];
+};
+
 // INTERNAL note — never emailed to the customer.
 export type CommentData = {
   id: string;

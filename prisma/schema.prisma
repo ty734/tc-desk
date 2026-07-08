@@ -70,7 +70,8 @@ model Inbox {
   supportEmail  String // support@livingwellwithdrmichelle.com
   fromName      String // "Living Well Support"
   sendingDomain String // domain authenticated in Postmark
-  inboundToken  String    @unique // maps Postmark inbound server/stream → this inbox
+  inboundToken  String    @unique // webhook auth: Postmark inbound server → this inbox
+  inboundAddress String? // <hash>@inbound.postmarkapp.com — base for tokenized Reply-To (hash+replyToken@)
   shopifyDomain String // this brand's Shopify store
   shopifyToken  String // Admin API token (env-ref/encrypted; placeholder until Phase D)
   boardId       String    @unique // the board that holds this inbox's tickets
