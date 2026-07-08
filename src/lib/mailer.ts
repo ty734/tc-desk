@@ -73,7 +73,32 @@ export async function sendCustomerEmail(mail: CustomerMail): Promise<CustomerSen
   }
 }
 
+// Internal agent notifications: Postmark (verified domain) when configured,
+// Resend as fallback, console in bare local dev.
 export async function sendEmail({ to, subject, html }: Mail) {
+  const postmarkToken = process.env.POSTMARK_SERVER_TOKEN;
+  const from = process.env.EMAIL_FROM ?? "TC Desk <support@livingwellwithdrmichelle.com>";
+
+  if (postmarkToken) {
+    try {
+      const res = await fetch("https://api.postmarkapp.com/email", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Postmark-Server-Token": postmarkToken,
+        },
+        body: JSON.stringify({ From: from, To: to, Subject: subject, HtmlBody: html, MessageStream: "outbound" }),
+      });
+      if (!res.ok) {
+        console.error(`[mail] Postmark error ${res.status}: ${await res.text()}`);
+      }
+    } catch (err) {
+      console.error("[mail] send failed", err);
+    }
+    return;
+  }
+
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.log(`[mail:dev] to=${to} subject="${subject}"\n${html}`);
@@ -87,7 +112,7 @@ export async function sendEmail({ to, subject, html }: Mail) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "TC Desk <onboarding@resend.dev>",
+        from,
         to: [to],
         subject,
         html,
