@@ -1,12 +1,77 @@
-// INTERNAL notifications to agents (assignments, notes, invites, password
-// resets) via Resend's HTTP API. When RESEND_API_KEY is not set (local dev),
-// emails are logged to the server console instead of sent.
-//
-// NOTE: customer-facing email (ticket replies) does NOT go through this file's
-// notification helpers. Phase B/C extends sendEmail() with provider abstraction
-// (Postmark), custom headers, replyTo and attachments for the customer channel.
+// Two mail paths live here:
+// 1. sendCustomerEmail() — customer-facing ticket replies via Postmark, sent
+//    from the ticket's Inbox identity with RFC threading headers.
+// 2. sendEmail() + helpers — INTERNAL notifications to agents (assignments,
+//    notes, invites, password resets) via Resend. When RESEND_API_KEY is not
+//    set (local dev), these log to the server console instead.
 
 type Mail = { to: string; subject: string; html: string };
+
+export type CustomerMail = {
+  from: string; // "Living Well Support <support@…>"
+  to: string;
+  replyTo?: string; // tokenized inbound address (email channel)
+  subject: string;
+  textBody: string;
+  htmlBody?: string;
+  inReplyTo?: string | null; // RFC Message-ID (no angle brackets)
+  references?: string[]; // RFC Message-IDs, oldest first (no angle brackets)
+};
+
+export type CustomerSendResult =
+  | { ok: true; messageIdHeader: string; providerMessageId: string }
+  | { ok: false; error: string };
+
+// Postmark generates the outbound RFC Message-ID as <uuid@mtasv.net> where
+// uuid is the MessageID it returns — we store that so the customer's next
+// reply matches back to the ticket via In-Reply-To/References.
+export async function sendCustomerEmail(mail: CustomerMail): Promise<CustomerSendResult> {
+  const token = process.env.POSTMARK_SERVER_TOKEN;
+  if (!token) return { ok: false, error: "POSTMARK_SERVER_TOKEN is not configured." };
+
+  const headers: { Name: string; Value: string }[] = [];
+  if (mail.inReplyTo) headers.push({ Name: "In-Reply-To", Value: `<${mail.inReplyTo}>` });
+  if (mail.references?.length) {
+    headers.push({ Name: "References", Value: mail.references.map((r) => `<${r}>`).join(" ") });
+  }
+
+  try {
+    const res = await fetch("https://api.postmarkapp.com/email", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Postmark-Server-Token": token,
+      },
+      body: JSON.stringify({
+        From: mail.from,
+        To: mail.to,
+        ...(mail.replyTo ? { ReplyTo: mail.replyTo } : {}),
+        Subject: mail.subject,
+        TextBody: mail.textBody,
+        ...(mail.htmlBody ? { HtmlBody: mail.htmlBody } : {}),
+        ...(headers.length ? { Headers: headers } : {}),
+        MessageStream: "outbound",
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.ErrorCode) {
+      // 412 = account pending approval and recipient off-domain — say so plainly.
+      const hint =
+        data.ErrorCode === 412
+          ? " (Postmark account is in Test mode — click Request approval, or send only to your own domain until approved.)"
+          : "";
+      return { ok: false, error: `${data.Message ?? `Postmark error ${res.status}`}${hint}` };
+    }
+    return {
+      ok: true,
+      messageIdHeader: `${data.MessageID}@mtasv.net`,
+      providerMessageId: data.MessageID,
+    };
+  } catch (err) {
+    return { ok: false, error: `Postmark request failed: ${String(err)}` };
+  }
+}
 
 export async function sendEmail({ to, subject, html }: Mail) {
   const apiKey = process.env.RESEND_API_KEY;

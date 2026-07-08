@@ -61,6 +61,11 @@ export default function TicketModal({
   const [notes, setNotes] = useState<CommentData[]>([]);
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [canned, setCanned] = useState<{ id: string; title: string; body: string }[] | null>(null);
+  const [cannedOpen, setCannedOpen] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
@@ -119,6 +124,46 @@ export default function TicketModal({
             m.id !== currentUserId &&
             m.name.toLowerCase().startsWith(mentionQuery.toLowerCase())
         );
+
+  const isAmazon = ticket.channel === "amazon";
+  const canReply = isAmazon || !!(customerEmail || ticket.customerEmail);
+
+  async function openCanned() {
+    setCannedOpen((v) => !v);
+    if (canned === null) {
+      const res = await fetch("/api/canned-replies");
+      if (res.ok) setCanned((await res.json()).cannedReplies);
+      else setCanned([]);
+    }
+  }
+
+  function insertCanned(body: string) {
+    const firstName = (customerName || ticket.customerName || "").split(/\s+/)[0] || "there";
+    const merged = body.replace(/\{\{\s*first_name\s*\}\}/g, firstName);
+    setReply((r) => (r ? `${r}\n${merged}` : merged));
+    setCannedOpen(false);
+  }
+
+  async function sendReply(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reply.trim() || sending) return;
+    setSending(true);
+    setReplyError(null);
+    const res = await fetch(`/api/tickets/${ticket.id}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bodyText: reply.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSending(false);
+    if (res.ok) {
+      setReply("");
+      setMessages((m) => [...m, data.message]);
+      if (data.status) onPatch({ status: data.status });
+    } else {
+      setReplyError(data.error ?? "Could not send the reply.");
+    }
+  }
 
   async function postNote(e: React.FormEvent) {
     e.preventDefault();
@@ -329,6 +374,79 @@ export default function TicketModal({
               ))}
             </div>
           )}
+        </div>
+
+        {/* REPLY TO CUSTOMER — sends a real email. Deliberately styled violet
+            (vs the amber team-only notes below) so the two can never be
+            confused. */}
+        <div className="px-6 pb-5">
+          <div className="border-2 border-violet-300 rounded-xl bg-violet-50/40 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-sm font-semibold text-violet-800">✉️ Reply to customer</h4>
+              <span className="flex-1" />
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={openCanned}
+                  className="text-xs font-medium text-violet-700 border border-violet-200 rounded-lg px-2 py-1 hover:bg-violet-100"
+                >
+                  Canned replies ▾
+                </button>
+                {cannedOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setCannedOpen(false)} />
+                    <div className="absolute right-0 z-20 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-64 max-h-56 overflow-y-auto">
+                      {canned === null ? (
+                        <p className="text-xs text-gray-400 px-3 py-2">Loading…</p>
+                      ) : canned.length === 0 ? (
+                        <p className="text-xs text-gray-400 px-3 py-2">
+                          No canned replies yet. Create them via POST /api/canned-replies.
+                        </p>
+                      ) : (
+                        canned.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-violet-50"
+                            onClick={() => insertCanned(c.body)}
+                          >
+                            {c.title}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-violet-700/70 mb-2">
+              {isAmazon
+                ? "Sends through Amazon's buyer messaging relay (Amazon strips attachments)."
+                : canReply
+                  ? `Sends a real email to ${customerEmail || ticket.customerEmail} from your support address.`
+                  : "Add a customer email above to enable replies."}
+            </p>
+            <form onSubmit={sendReply}>
+              <textarea
+                rows={4}
+                className="w-full border border-violet-300 rounded-lg p-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
+                placeholder={canReply ? "Write your reply to the customer…" : "No customer email on this ticket."}
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                disabled={!canReply || sending}
+              />
+              {replyError && <p className="text-sm text-red-600 mt-1">{replyError}</p>}
+              <div className="flex items-center gap-3 mt-2">
+                <button
+                  disabled={!canReply || !reply.trim() || sending}
+                  className="bg-violet-700 hover:bg-violet-800 disabled:opacity-40 text-white text-sm font-semibold rounded-lg px-5 py-2"
+                >
+                  {sending ? "Sending…" : "Send reply"}
+                </button>
+                <span className="text-xs text-gray-400">Sending moves the ticket to Pending.</span>
+              </div>
+            </form>
+          </div>
         </div>
 
         {/* INTERNAL NOTES — amber styling makes it unmistakable these never
