@@ -34,9 +34,12 @@
     "#lw-chat-bubble:hover{transform:scale(1.06)}",
     "#lw-chat-panel{position:fixed;bottom:90px;right:20px;z-index:2147483000;width:360px;max-width:calc(100vw - 32px);height:520px;max-height:calc(100vh - 120px);background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(41,64,78,.25);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif}",
     "#lw-chat-panel.open{display:flex}",
-    "#lw-chat-head{background:" + SAGE + ";color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}",
-    "#lw-chat-head b{font-size:15px;font-weight:600}",
-    "#lw-chat-head span{font-size:11px;opacity:.85;display:block}",
+    "#lw-chat-head{background:" + SAGE + ";color:#fff;padding:12px 16px;display:flex;align-items:center;gap:11px;min-height:62px}",
+    "#lw-chat-head b{font-size:15px;font-weight:600;display:block}",
+    "#lw-chat-head .lw-sub{font-size:11px;opacity:.85;display:block}",
+    "#lw-chat-avatar{position:relative;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.25);display:none;align-items:center;justify-content:center;font-size:17px;font-weight:700;color:#fff;flex-shrink:0}",
+    "#lw-chat-avatar.on{display:flex}",
+    "#lw-chat-avatar .lw-presence{position:absolute;bottom:0;right:0;width:11px;height:11px;border-radius:50%;background:#3fd06a;border:2px solid " + SAGE + "}",
     "#lw-chat-close{margin-left:auto;background:none;border:none;color:#fff;opacity:.75;font-size:22px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px}",
     "#lw-chat-close:hover{opacity:1;background:rgba(255,255,255,.15)}",
     "#lw-chat-msgs{flex:1;overflow-y:auto;padding:14px;background:#fbfcfb;display:flex;flex-direction:column;gap:8px}",
@@ -81,7 +84,7 @@
   var panel = document.createElement("div");
   panel.id = "lw-chat-panel";
   panel.innerHTML =
-    '<div id="lw-chat-head"><div><b>Living Well Support</b><span>Ask us anything about our products or your order</span></div><button id="lw-chat-close" type="button" aria-label="Close chat">&times;</button></div>' +
+    '<div id="lw-chat-head"><span id="lw-chat-avatar"><span id="lw-chat-avatar-letter"></span><span class="lw-presence"></span></span><div><b id="lw-chat-title">Living Well Support</b><span class="lw-sub" id="lw-chat-sub">Ask us anything about our products or your order</span></div><button id="lw-chat-close" type="button" aria-label="Close chat">&times;</button></div>' +
     '<div id="lw-chat-status"><span class="lw-dot"></span><span id="lw-chat-status-text"></span></div>' +
     '<div id="lw-chat-msgs"></div>' +
     '<form id="lw-chat-form"><textarea id="lw-chat-input" rows="1" placeholder="Type your question…"></textarea><button id="lw-chat-send" type="submit">Send</button></form>' +
@@ -121,14 +124,32 @@
     return el;
   }
 
+  var headTitle = panel.querySelector("#lw-chat-title");
+  var headSub = panel.querySelector("#lw-chat-sub");
+  var headAvatar = panel.querySelector("#lw-chat-avatar");
+  var headAvatarLetter = panel.querySelector("#lw-chat-avatar-letter");
+  var lastAgentName = sessionStorage.getItem("lw-chat-agent") || "";
+
   function setStatus(m, agentName) {
-    if (m === "waiting") {
+    if (agentName) { lastAgentName = agentName; sessionStorage.setItem("lw-chat-agent", agentName); }
+    if (m === "live") {
+      // Human takeover: their identity moves into the header, LiveChat-style.
+      var n = lastAgentName || "Support";
+      headAvatar.className = "on";
+      headAvatarLetter.textContent = n.charAt(0).toUpperCase();
+      headTitle.textContent = n;
+      headSub.textContent = "Customer Support · Living Well";
+      statusBar.className = "";
+    } else if (m === "waiting") {
+      headAvatar.className = "";
+      headTitle.textContent = "Living Well Support";
+      headSub.textContent = "Ask us anything about our products or your order";
       statusBar.className = "on";
       statusText.textContent = "Connecting you with a teammate…";
-    } else if (m === "live") {
-      statusBar.className = "on live";
-      statusText.textContent = "You're chatting with " + (agentName || "our team");
     } else {
+      headAvatar.className = "";
+      headTitle.textContent = "Living Well Support";
+      headSub.textContent = "Ask us anything about our products or your order";
       statusBar.className = "";
     }
   }
