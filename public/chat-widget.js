@@ -37,6 +37,8 @@
     "#lw-chat-head{background:" + SAGE + ";color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}",
     "#lw-chat-head b{font-size:15px;font-weight:600}",
     "#lw-chat-head span{font-size:11px;opacity:.85;display:block}",
+    "#lw-chat-close{margin-left:auto;background:none;border:none;color:#fff;opacity:.75;font-size:22px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px}",
+    "#lw-chat-close:hover{opacity:1;background:rgba(255,255,255,.15)}",
     "#lw-chat-msgs{flex:1;overflow-y:auto;padding:14px;background:#fbfcfb;display:flex;flex-direction:column;gap:8px}",
     "@keyframes lw-pop{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}",
     "@keyframes lw-dot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}",
@@ -79,7 +81,7 @@
   var panel = document.createElement("div");
   panel.id = "lw-chat-panel";
   panel.innerHTML =
-    '<div id="lw-chat-head"><div><b>Living Well Support</b><span>Ask us anything about our products or your order</span></div></div>' +
+    '<div id="lw-chat-head"><div><b>Living Well Support</b><span>Ask us anything about our products or your order</span></div><button id="lw-chat-close" type="button" aria-label="Close chat">&times;</button></div>' +
     '<div id="lw-chat-status"><span class="lw-dot"></span><span id="lw-chat-status-text"></span></div>' +
     '<div id="lw-chat-msgs"></div>' +
     '<form id="lw-chat-form"><textarea id="lw-chat-input" rows="1" placeholder="Type your question…"></textarea><button id="lw-chat-send" type="submit">Send</button></form>' +
@@ -194,6 +196,28 @@
     }
   });
 
+  panel.querySelector("#lw-chat-close").addEventListener("click", function () {
+    panel.classList.remove("open");
+  });
+
+  // Context from the page the customer is on: URL, title, and the store's
+  // announcement bar (so the bot knows about whatever sale is running right
+  // now without anyone updating the knowledge base).
+  function pageContext() {
+    var banner = "";
+    var selectors = (script && script.getAttribute("data-banner-selector")) ||
+      ".announcement-bar,[class*='announcement'],[id*='announcement'],.top-bar__content";
+    try {
+      var el = document.querySelector(selectors);
+      if (el) banner = (el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    } catch (e) {}
+    return {
+      url: location.href.slice(0, 300),
+      title: (document.title || "").slice(0, 150),
+      banner: banner,
+    };
+  }
+
   input.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -232,6 +256,7 @@
       body: JSON.stringify({
         brand: BRAND,
         sessionId: sessionId,
+        page: pageContext(),
         // Agent messages become assistant context so the bot knows what a
         // human already told the customer; system notes are dropped.
         messages: history
