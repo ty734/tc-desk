@@ -71,6 +71,9 @@ export default async function MyTicketsPage() {
                   >
                     <div className="flex items-center gap-3">
                       <ChannelBadge channel={ticket.channel} />
+                      {ticket.number != null && (
+                        <span className="text-xs font-semibold text-gray-400 shrink-0">#{ticket.number}</span>
+                      )}
                       <span className="flex-1 font-medium text-gray-800">{ticket.subject}</span>
                       <span className="text-xs font-semibold shrink-0 text-gray-500">{age}</span>
                     </div>

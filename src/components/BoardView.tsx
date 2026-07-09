@@ -60,6 +60,9 @@ function TicketTile({
     >
       <div className="flex items-center gap-2 mb-1">
         <ChannelBadge channel={ticket.channel} />
+        {ticket.number != null && (
+          <span className="text-[11px] font-semibold text-gray-400 shrink-0">#{ticket.number}</span>
+        )}
         {ticket.customerName || ticket.customerEmail ? (
           <span className="text-xs text-gray-500 truncate">
             {ticket.customerName ?? ticket.customerEmail}
@@ -337,6 +340,7 @@ export default function BoardView({
               position: c.position,
               tickets: c.tickets.map((t) => ({
                 id: t.id,
+                number: t.number,
                 columnId: t.columnId,
                 subject: t.subject,
                 position: t.position,
@@ -437,6 +441,7 @@ export default function BoardView({
                   ...col.tickets,
                   {
                     id: ticket.id,
+                    number: ticket.number,
                     columnId,
                     subject: ticket.subject,
                     position: ticket.position,
@@ -465,6 +470,31 @@ export default function BoardView({
     setColumns((cols) => cols.map((c) => ({ ...c, tickets: c.tickets.filter((x) => x.id !== ticketId) })));
     setOpenTicketId(null);
     fetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
+  }
+
+  const STATUSES = ["new", "open", "pending", "solved", "closed"];
+
+  // Move a ticket to another status column from the modal (relocates the tile
+  // in state + persists; the API syncs status from the column name).
+  function moveTicketToColumn(ticketId: string, columnId: string) {
+    touch();
+    const target = columns.find((c) => c.id === columnId);
+    if (!target) return;
+    const normalized = target.name.trim().toLowerCase();
+    const status = STATUSES.includes(normalized) ? normalized : undefined;
+    setColumns((cols) => {
+      let moved: TicketData | undefined;
+      const stripped = cols.map((col) => {
+        const found = col.tickets.find((t) => t.id === ticketId);
+        if (found) moved = { ...found, columnId, ...(status ? { status } : {}) };
+        return { ...col, tickets: col.tickets.filter((t) => t.id !== ticketId) };
+      });
+      if (!moved) return cols;
+      return stripped.map((col) =>
+        col.id === columnId ? { ...col, tickets: [moved!, ...col.tickets] } : col
+      );
+    });
+    apiPatchTicket(ticketId, { columnId });
   }
 
   /* ---- column ops ---- */
@@ -718,6 +748,7 @@ export default function BoardView({
         <TicketModal
           ticket={openTicket}
           boardId={initial.id}
+          columns={columns.map((c) => ({ id: c.id, name: c.name }))}
           fields={fields}
           members={members}
           currentUserId={currentUserId}
@@ -728,6 +759,7 @@ export default function BoardView({
           }}
           onSave={(body) => apiPatchTicket(openTicket.id, body)}
           onDelete={() => deleteTicket(openTicket.id)}
+          onChangeColumn={(columnId) => moveTicketToColumn(openTicket.id, columnId)}
         />
       )}
       {showInvite && (

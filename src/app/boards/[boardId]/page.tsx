@@ -62,6 +62,7 @@ export default async function BoardPage({
       position: c.position,
       tickets: c.tickets.map((t) => ({
         id: t.id,
+        number: t.number,
         columnId: t.columnId,
         subject: t.subject,
         position: t.position,

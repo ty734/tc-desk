@@ -35,6 +35,7 @@ function NoteBody({ body, members }: { body: string; members: Member[] }) {
 
 export default function TicketModal({
   ticket,
+  columns,
   fields,
   members,
   currentUserId,
@@ -43,9 +44,11 @@ export default function TicketModal({
   onPatch,
   onSave,
   onDelete,
+  onChangeColumn,
 }: {
   ticket: TicketData;
   boardId: string;
+  columns: { id: string; name: string }[];
   fields: FieldData[];
   members: Member[];
   currentUserId: string;
@@ -54,6 +57,7 @@ export default function TicketModal({
   onPatch: (patch: Partial<TicketData>) => void;
   onSave: (body: Record<string, unknown>) => void;
   onDelete: () => void;
+  onChangeColumn: (columnId: string) => void;
 }) {
   const [subject, setSubject] = useState(ticket.subject);
   const [customerName, setCustomerName] = useState(ticket.customerName ?? "");
@@ -251,11 +255,25 @@ export default function TicketModal({
       >
         <div className="min-w-0">
         {/* Header */}
-        <div className="flex items-center gap-3 px-6 pt-5">
+        <div className="flex items-center gap-2.5 px-6 pt-5">
           <ChannelBadge channel={ticket.channel} />
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            {ticket.status}
-          </span>
+          {ticket.number != null && (
+            <span className="text-sm font-semibold text-gray-400">#{ticket.number}</span>
+          )}
+          {columns.length > 0 && (
+            <select
+              value={ticket.columnId}
+              onChange={(e) => onChangeColumn(e.target.value)}
+              className="text-xs font-semibold uppercase tracking-wide text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer"
+              title="Change status"
+            >
+              {columns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="flex-1" />
           <button
             onClick={() => {

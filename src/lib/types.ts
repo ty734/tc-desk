@@ -34,6 +34,7 @@ export type CommentData = {
 
 export type TicketData = {
   id: string;
+  number: number | null;
   columnId: string;
   subject: string;
   position: number;

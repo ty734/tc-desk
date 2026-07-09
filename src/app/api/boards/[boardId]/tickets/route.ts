@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, getBoardMembership } from "@/lib/auth";
+import { nextTicketNumber } from "@/lib/tickets";
 
 const STATUSES = ["new", "open", "pending", "solved", "closed"];
 
@@ -34,8 +35,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ boardId
 
   const normalized = column.name.trim().toLowerCase();
   const last = await db.ticket.findFirst({ where: { columnId }, orderBy: { position: "desc" } });
+  const number = await nextTicketNumber(inbox.id);
   const ticket = await db.ticket.create({
     data: {
+      number,
       inboxId: inbox.id,
       boardId,
       columnId,

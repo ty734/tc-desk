@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/mailer";
+import { nextTicketNumber } from "@/lib/tickets";
 
 // Postmark inbound webhook (spec §4). The ?token= query param is the Inbox's
 // inboundToken — it both authenticates the call and selects the brand/inbox,
@@ -160,8 +161,10 @@ export async function POST(req: Request) {
       where: { columnId: newCol.id },
       orderBy: { position: "desc" },
     });
+    const number = await nextTicketNumber(inbox.id);
     ticket = await db.ticket.create({
       data: {
+        number,
         inboxId: inbox.id,
         boardId: inbox.boardId,
         columnId: newCol.id,

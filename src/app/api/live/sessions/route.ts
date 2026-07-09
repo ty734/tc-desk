@@ -14,15 +14,22 @@ export async function GET() {
     data: { lastSeenAt: new Date() },
   });
 
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const [sessions, agents] = await Promise.all([
     db.chatSession.findMany({
-      where: { status: { in: ["waiting", "live"] } },
+      where: {
+        OR: [
+          { status: { in: ["waiting", "live"] } },
+          // Recently ended chats stay visible for the rest of the day.
+          { status: "ended", updatedAt: { gte: dayAgo } },
+        ],
+      },
       include: {
         inbox: { select: { name: true, brand: true } },
         agent: { select: { id: true, name: true } },
       },
       orderBy: { updatedAt: "desc" },
-      take: 50,
+      take: 60,
     }),
     onlineAgents(),
   ]);

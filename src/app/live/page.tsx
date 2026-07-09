@@ -162,6 +162,7 @@ export default function LiveChatPage() {
 
   const waiting = sessions.filter((s) => s.status === "waiting");
   const live = sessions.filter((s) => s.status === "live");
+  const ended = sessions.filter((s) => s.status === "ended");
 
   return (
     <div className="flex flex-col h-screen">
@@ -201,7 +202,7 @@ export default function LiveChatPage() {
               offers live chat while someone is checked in.
             </p>
           )}
-          {waiting.length === 0 && live.length === 0 && (
+          {waiting.length === 0 && live.length === 0 && ended.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-10">No active chats.</p>
           )}
           {waiting.map((s) => (
@@ -245,6 +246,36 @@ export default function LiveChatPage() {
               <p className="text-xs text-gray-500 truncate mt-0.5">{s.preview}</p>
             </button>
           ))}
+
+          {ended.length > 0 && (
+            <div className="pt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-1 mb-1.5">
+                Recently ended
+              </p>
+              {ended.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setOpenId(s.id)}
+                  className={`w-full text-left border rounded-xl p-3 mb-2 transition-colors ${
+                    openId === s.id ? "border-violet-400 bg-violet-50" : "border-gray-100 bg-gray-50 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gray-300" />
+                    <span className="text-xs font-semibold text-gray-400">
+                      ended{s.agent ? ` · ${s.agent.name}` : ""}
+                    </span>
+                    <span className="flex-1" />
+                    <span className="text-[11px] text-gray-400">{s.inbox}</span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-600 mt-1">
+                    {s.visitorName || s.visitorEmail || "Store visitor"}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate mt-0.5">{s.preview}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </aside>
 
         {/* Open conversation */}
@@ -274,6 +305,13 @@ export default function LiveChatPage() {
                 {openChat.status === "ended" && (
                   <span className="text-xs font-semibold uppercase text-gray-400">Ended</span>
                 )}
+                <button
+                  onClick={() => setOpenId(null)}
+                  className="text-gray-400 hover:text-gray-700 text-xl px-1 leading-none"
+                  title="Close"
+                >
+                  ×
+                </button>
               </div>
               <div ref={msgsRef} className="flex-1 overflow-y-auto p-5 space-y-2 flex flex-col">
                 {openChat.messages.map((m, i) =>

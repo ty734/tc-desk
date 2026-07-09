@@ -77,6 +77,7 @@ model Inbox {
   shopifyDomain String // this brand's Shopify store
   shopifyToken  String // Admin API token (env-ref/encrypted; placeholder until Phase D)
   boardId       String    @unique // the board that holds this inbox's tickets
+  ticketCounter Int       @default(0) // atomic source of human-readable ticket numbers
   board         Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   tickets       Ticket[]
@@ -119,6 +120,7 @@ model Column {
 
 model Ticket {
   id              String             @id @default(cuid())
+  number          Int? // human-readable per-inbox ticket number (e.g. #1024)
   inboxId         String // which brand/inbox this ticket belongs to
   boardId         String
   columnId        String // = status column
@@ -144,6 +146,7 @@ model Ticket {
   comments        Comment[]
   fieldValues     TicketFieldValue[]
 
+  @@unique([inboxId, number])
   @@index([boardId])
   @@index([inboxId])
   @@index([status])

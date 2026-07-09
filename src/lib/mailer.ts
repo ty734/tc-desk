@@ -10,10 +10,11 @@ type Mail = { to: string; subject: string; html: string };
 export type CustomerMail = {
   from: string; // "Living Well Support <support@…>"
   to: string;
-  replyTo?: string; // tokenized inbound address (email channel)
+  replyTo?: string; // where replies should go (bare support@ address)
   subject: string;
   textBody: string;
   htmlBody?: string;
+  messageId?: string; // our own Message-ID (no angle brackets); Postmark preserves it
   inReplyTo?: string | null; // RFC Message-ID (no angle brackets)
   references?: string[]; // RFC Message-IDs, oldest first (no angle brackets)
 };
@@ -30,6 +31,7 @@ export async function sendCustomerEmail(mail: CustomerMail): Promise<CustomerSen
   if (!token) return { ok: false, error: "POSTMARK_SERVER_TOKEN is not configured." };
 
   const headers: { Name: string; Value: string }[] = [];
+  if (mail.messageId) headers.push({ Name: "Message-ID", Value: `<${mail.messageId}>` });
   if (mail.inReplyTo) headers.push({ Name: "In-Reply-To", Value: `<${mail.inReplyTo}>` });
   if (mail.references?.length) {
     headers.push({ Name: "References", Value: mail.references.map((r) => `<${r}>`).join(" ") });
@@ -65,7 +67,9 @@ export async function sendCustomerEmail(mail: CustomerMail): Promise<CustomerSen
     }
     return {
       ok: true,
-      messageIdHeader: `${data.MessageID}@mtasv.net`,
+      // If we set our own Message-ID, that's the header on the wire; else
+      // Postmark stamps <MessageID@mtasv.net>.
+      messageIdHeader: mail.messageId ?? `${data.MessageID}@mtasv.net`,
       providerMessageId: data.MessageID,
     };
   } catch (err) {

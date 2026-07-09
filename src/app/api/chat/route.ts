@@ -5,6 +5,7 @@ import { fetchOrdersByEmail, resolveShopifyToken } from "@/lib/shopify";
 import { getSubscriptionsByEmail, rechargeKeyForBrand } from "@/lib/recharge";
 import { corsHeaders } from "@/lib/cors";
 import { appendChatMessage, onlineAgents } from "@/lib/livechat";
+import { nextTicketNumber } from "@/lib/tickets";
 
 // Public storefront chat endpoint (spec §7). The widget on the Shopify theme
 // POSTs here. Claude answers ONLY from retrieved KB content, with hard
@@ -44,13 +45,13 @@ VOICE: warm, clear, encouraging, never condescending. Short answers — 1 to 4 s
 
 GROUNDING RULES (mandatory):
 - Answer ONLY from search_kb results and get_order_status results. Search the KB before answering any product, policy, shipping, ingredient, or usage question.
-- If the KB doesn't clearly answer the question, say you're not certain and offer to connect them with the team via handoff_to_human. NEVER guess or improvise facts, prices, policies, or ingredient claims.
+- If the KB doesn't clearly answer the question, say you're not certain and offer to connect them with the team via request_human. NEVER guess or improvise facts, prices, policies, or ingredient claims.
 - Quote prices and policy numbers only when they appear in retrieved content.
 
 COMPLIANCE RULES (mandatory — this is a health-products company and you speak for it):
 - NEVER diagnose any condition, and never tell a customer what their symptoms mean.
 - NEVER use drug claims: treat, cure, prevent, heal, fights, kills, eliminates, reverses (for bacteria, disease, infection, or any condition). Use cosmetic/structure-function language only: supports, helps maintain, promotes, designed to.
-- If a question involves a medical condition, symptoms, medication interactions, pregnancy, a child's health issue, or anything health-sensitive: express care, do NOT advise, recommend they consult their dentist or doctor, and offer handoff_to_human.
+- If a question involves a medical condition, symptoms, medication interactions, pregnancy, a child's health issue, or anything health-sensitive: express care, do NOT advise, recommend they consult their dentist or doctor, and offer request_human.
 - Never promise refunds, replacements, or exceptions — that's a decision for the human team; offer handoff instead.
 - If asked whether products treat/cure something, gently reframe: the products support oral health; for health concerns they should talk with their dentist or doctor.
 
@@ -143,8 +144,10 @@ async function createHandoffTicket(opts: {
   });
 
   const last = await db.ticket.findFirst({ where: { columnId: newCol.id }, orderBy: { position: "desc" } });
+  const number = await nextTicketNumber(opts.inboxId);
   const ticket = await db.ticket.create({
     data: {
+      number,
       inboxId: opts.inboxId,
       boardId: opts.boardId,
       columnId: newCol.id,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getCurrentUser, getBoardMembership } from "@/lib/auth";
 import { sendCustomerEmail } from "@/lib/mailer";
@@ -43,13 +44,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ ticketI
     .map((m) => m.messageIdHeader)
     .filter((id): id is string => !!id);
 
-  // Tokenized Reply-To (email channel only): hash+replyToken@inbound domain —
-  // the customer's reply routes straight back to this ticket via MailboxHash.
-  let replyTo: string | undefined;
-  if (!isAmazon && ticket.inbox.inboundAddress) {
-    const [local, domain] = ticket.inbox.inboundAddress.split("@");
-    if (local && domain) replyTo = `${local}+${ticket.replyToken}@${domain}`;
-  }
+  // Our own Message-ID so the customer's reply threads back deterministically
+  // (Postmark preserves a custom Message-ID; verified 2026-07-09).
+  const ourMessageId = `tkt-${ticket.id}-${randomBytes(6).toString("hex")}@${ticket.inbox.sendingDomain}`;
+
+  // Reply-To = the plain support address (email channel). The tokenized
+  // hash+token@inbound.postmarkapp.com address does NOT reliably receive
+  // replies, so we route replies to support@, which (a) is visible in the
+  // support Gmail and (b) forwards to Postmark inbound → this webhook, where
+  // the reply matches back to THIS ticket via In-Reply-To (our Message-ID)
+  // with a recent-sender fallback. Amazon replies go to the relay only.
+  const replyTo = isAmazon ? undefined : ticket.inbox.supportEmail;
 
   const subject = /^re:/i.test(ticket.subject) ? ticket.subject : `Re: ${ticket.subject}`;
   const text = bodyText.trim();
@@ -65,6 +70,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ ticketI
     subject,
     textBody: text,
     htmlBody: html,
+    messageId: ourMessageId,
     inReplyTo: lastInbound?.messageIdHeader ?? null,
     references: chain,
   });
