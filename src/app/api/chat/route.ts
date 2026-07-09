@@ -238,8 +238,8 @@ export async function POST(req: Request) {
     await appendChatMessage(sessionId, { role: "user", content: messages[messages.length - 1].content });
     return NextResponse.json({ reply: null, status: session.status }, { headers });
   }
-  // A finished live chat quietly returns to bot mode on the next message.
-  if (session.status === "ended") {
+  // A finished (or archived) live chat quietly returns to bot mode on the next message.
+  if (session.status === "ended" || session.status === "archived") {
     await db.chatSession.update({ where: { id: sessionId }, data: { status: "bot", agentId: null } });
   }
 

@@ -3,6 +3,21 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { entries, onlineAgents } from "@/lib/livechat";
 
+// Dismiss all ended chats from the panel at once (transcripts retained).
+export async function POST(req: Request) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Not logged in." }, { status: 401 });
+  const { action } = await req.json().catch(() => ({}));
+  if (action === "clear-ended") {
+    const r = await db.chatSession.updateMany({
+      where: { status: "ended" },
+      data: { status: "archived" },
+    });
+    return NextResponse.json({ ok: true, cleared: r.count });
+  }
+  return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+}
+
 // The Live Chat screen's poll: waiting + active sessions, presence roster,
 // and (side effect) the caller's presence heartbeat while checked in.
 export async function GET() {

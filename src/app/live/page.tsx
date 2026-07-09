@@ -160,6 +160,30 @@ export default function LiveChatPage() {
     refreshSessions();
   }
 
+  // Dismiss an ended chat from the panel (transcript kept in the DB).
+  async function archiveChat(id: string) {
+    if (openId === id) setOpenId(null);
+    setSessions((s) => s.filter((x) => x.id !== id)); // optimistic
+    await fetch(`/api/live/sessions/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "archive" }),
+    });
+    refreshSessions();
+  }
+
+  async function clearEnded() {
+    if (!confirm("Clear all ended chats from this list? Transcripts are kept.")) return;
+    setSessions((s) => s.filter((x) => x.status !== "ended")); // optimistic
+    setOpenId(null);
+    await fetch(`/api/live/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clear-ended" }),
+    });
+    refreshSessions();
+  }
+
   const waiting = sessions.filter((s) => s.status === "waiting");
   const live = sessions.filter((s) => s.status === "live");
   const ended = sessions.filter((s) => s.status === "ended");
@@ -249,18 +273,37 @@ export default function LiveChatPage() {
 
           {ended.length > 0 && (
             <div className="pt-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-1 mb-1.5">
-                Recently ended
-              </p>
-              {ended.map((s) => (
+              <div className="flex items-center px-1 mb-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  Recently ended
+                </p>
+                <span className="flex-1" />
                 <button
+                  onClick={clearEnded}
+                  className="text-[11px] font-medium text-gray-400 hover:text-violet-700"
+                >
+                  Clear all
+                </button>
+              </div>
+              {ended.map((s) => (
+                <div
                   key={s.id}
                   onClick={() => setOpenId(s.id)}
-                  className={`w-full text-left border rounded-xl p-3 mb-2 transition-colors ${
+                  className={`relative group w-full text-left border rounded-xl p-3 mb-2 transition-colors cursor-pointer ${
                     openId === s.id ? "border-violet-400 bg-violet-50" : "border-gray-100 bg-gray-50 hover:border-gray-300"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      archiveChat(s.id);
+                    }}
+                    title="Dismiss"
+                    className="absolute top-2 right-2 text-gray-300 hover:text-gray-600 opacity-0 group-hover:opacity-100 text-base leading-none"
+                  >
+                    ×
+                  </button>
+                  <div className="flex items-center gap-2 pr-5">
                     <span className="w-2 h-2 rounded-full bg-gray-300" />
                     <span className="text-xs font-semibold text-gray-400">
                       ended{s.agent ? ` · ${s.agent.name}` : ""}
@@ -272,7 +315,7 @@ export default function LiveChatPage() {
                     {s.visitorName || s.visitorEmail || "Store visitor"}
                   </p>
                   <p className="text-xs text-gray-400 truncate mt-0.5">{s.preview}</p>
-                </button>
+                </div>
               ))}
             </div>
           )}

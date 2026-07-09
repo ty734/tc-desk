@@ -83,5 +83,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ session
     return NextResponse.json({ ok: true, status: "ended" });
   }
 
+  if (action === "archive") {
+    // Dismiss from the Live Chat panel. The transcript (and any linked ticket)
+    // is preserved — this only hides it from the agent view.
+    await db.chatSession.update({
+      where: { id: sessionId },
+      data: { status: "archived" },
+    });
+    return NextResponse.json({ ok: true, status: "archived" });
+  }
+
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 }
