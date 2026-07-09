@@ -33,12 +33,14 @@ function TicketTile({
   fields,
   members,
   onOpen,
+  onArchive,
   dragging,
 }: {
   ticket: TicketData;
   fields: FieldData[];
   members: Member[];
   onOpen?: (ticket: TicketData) => void;
+  onArchive?: (ticket: TicketData) => void;
   dragging?: boolean;
 }) {
   const assignee = members.find((m) => m.id === ticket.assigneeId);
@@ -54,11 +56,27 @@ function TicketTile({
   return (
     <div
       onClick={() => onOpen?.(ticket)}
-      className={`bg-white rounded-xl border border-gray-200/80 shadow-[0_1px_3px_rgba(15,23,42,0.08)] hover:shadow-md hover:border-violet-300 transition-all p-3.5 cursor-pointer select-none ${
+      className={`group relative bg-white rounded-xl border border-gray-200/80 shadow-[0_1px_3px_rgba(15,23,42,0.08)] hover:shadow-md hover:border-violet-300 transition-all p-3.5 cursor-pointer select-none ${
         dragging ? "shadow-xl rotate-2 border-violet-400" : ""
       }`}
     >
-      <div className="flex items-center gap-2 mb-1">
+      {onArchive && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onArchive(ticket);
+          }}
+          title="Archive (remove from board)"
+          className="absolute top-2 right-2 z-10 text-gray-300 hover:text-violet-700 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="4" rx="1" />
+            <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+            <path d="M10 12h4" />
+          </svg>
+        </button>
+      )}
+      <div className="flex items-center gap-2 mb-1 pr-5">
         <ChannelBadge channel={ticket.channel} />
         {ticket.number != null && (
           <span className="text-[11px] font-semibold text-gray-400 shrink-0">#{ticket.number}</span>
@@ -90,6 +108,7 @@ function SortableTicket(props: {
   fields: FieldData[];
   members: Member[];
   onOpen: (ticket: TicketData) => void;
+  onArchive: (ticket: TicketData) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.ticket.id,
@@ -113,6 +132,7 @@ function Column({
   fields,
   members,
   onOpen,
+  onArchive,
   onAddTicket,
   onRename,
   onMove,
@@ -122,6 +142,7 @@ function Column({
   fields: FieldData[];
   members: Member[];
   onOpen: (ticket: TicketData) => void;
+  onArchive: (ticket: TicketData) => void;
   onAddTicket: (columnId: string, subject: string) => void;
   onRename: (columnId: string, name: string) => void;
   onMove: (columnId: string, dir: -1 | 1) => void;
@@ -225,6 +246,7 @@ function Column({
               fields={fields}
               members={members}
               onOpen={onOpen}
+              onArchive={onArchive}
             />
           ))}
         </SortableContext>
@@ -470,6 +492,19 @@ export default function BoardView({
     setColumns((cols) => cols.map((c) => ({ ...c, tickets: c.tickets.filter((x) => x.id !== ticketId) })));
     setOpenTicketId(null);
     fetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
+  }
+
+  // Archive: remove from the board but keep the record (customer thread stays
+  // retrievable). Permanent delete lives in the ticket modal.
+  function archiveTicket(ticketId: string) {
+    touch();
+    setColumns((cols) => cols.map((c) => ({ ...c, tickets: c.tickets.filter((x) => x.id !== ticketId) })));
+    if (openTicketId === ticketId) setOpenTicketId(null);
+    fetch(`/api/tickets/${ticketId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: true }),
+    });
   }
 
   const STATUSES = ["new", "open", "pending", "solved", "closed"];
@@ -723,6 +758,7 @@ export default function BoardView({
                 fields={fields}
                 members={members}
                 onOpen={(ticket) => setOpenTicketId(ticket.id)}
+                onArchive={(ticket) => archiveTicket(ticket.id)}
                 onAddTicket={addTicket}
                 onRename={renameColumn}
                 onMove={moveColumn}

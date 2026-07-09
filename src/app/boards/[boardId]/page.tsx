@@ -32,6 +32,7 @@ export default async function BoardPage({
         orderBy: { position: "asc" },
         include: {
           tickets: {
+            where: { archived: false },
             orderBy: { position: "asc" },
             include: { fieldValues: { select: { fieldId: true, optionId: true } } },
           },

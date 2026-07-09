@@ -19,6 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ boardId
         orderBy: { position: "asc" },
         include: {
           tickets: {
+            where: { archived: false },
             orderBy: { position: "asc" },
             include: {
               assignee: { select: { id: true, name: true, email: true } },

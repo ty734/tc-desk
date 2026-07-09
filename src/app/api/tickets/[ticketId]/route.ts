@@ -50,6 +50,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ ticket
 
   if (body.subject !== undefined) data.subject = String(body.subject).trim();
   if (body.position !== undefined) data.position = Number(body.position);
+  if (body.archived !== undefined) data.archived = Boolean(body.archived);
   if (body.assigneeId !== undefined) data.assigneeId = body.assigneeId || null;
   if (body.customerName !== undefined) data.customerName = body.customerName || null;
   if (body.customerEmail !== undefined) data.customerEmail = body.customerEmail || null;

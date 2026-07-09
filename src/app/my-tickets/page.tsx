@@ -14,6 +14,7 @@ export default async function MyTicketsPage() {
   const tickets = await db.ticket.findMany({
     where: {
       assigneeId: user.id,
+      archived: false,
       status: { notIn: ["solved", "closed"] },
       boardId: { in: boardIds },
     },

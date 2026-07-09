@@ -22,7 +22,7 @@ export default async function Home() {
         board: {
           include: {
             _count: {
-              select: { tickets: { where: { status: { notIn: ["solved", "closed"] } } } },
+              select: { tickets: { where: { archived: false, status: { notIn: ["solved", "closed"] } } } },
             },
             members: { select: { userId: true } },
           },
