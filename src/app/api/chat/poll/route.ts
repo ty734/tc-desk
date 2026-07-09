@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   return NextResponse.json(
     {
       status: session.status,
-      agentName: session.agent?.name ?? null,
+      agentName: session.agent?.name.split(/\s+/)[0] ?? null,
       messages: entries(session.messages),
     },
     { headers }

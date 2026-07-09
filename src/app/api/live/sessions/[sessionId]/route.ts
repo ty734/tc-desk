@@ -49,9 +49,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ session
     if (claimed.count === 0) {
       return NextResponse.json({ error: "Chat was already taken (or expired)." }, { status: 409 });
     }
+    // Customers see first names only.
     await appendChatMessage(sessionId, {
       role: "system",
-      content: `${user.name} joined the chat`,
+      content: `${user.name.split(/\s+/)[0]} joined the chat`,
     });
     return NextResponse.json({ ok: true, status: "live" });
   }
@@ -64,7 +65,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ session
     if (!content) return NextResponse.json({ error: "Empty message." }, { status: 400 });
     const entry = await appendChatMessage(sessionId, {
       role: "agent",
-      name: user.name,
+      name: user.name.split(/\s+/)[0],
       content: content.slice(0, 4000),
     });
     return NextResponse.json({ ok: true, entry });
