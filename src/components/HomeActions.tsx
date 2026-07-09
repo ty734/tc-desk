@@ -8,6 +8,9 @@ export default function HomeActions({ userName }: { userName: string }) {
   const router = useRouter();
   return (
     <div className="flex items-center gap-4">
+      <Link href="/live" className="text-sm font-medium text-violet-700 hover:underline">
+        Live Chat
+      </Link>
       <Link href="/my-tickets" className="text-sm font-medium text-violet-700 hover:underline">
         My Tickets
       </Link>

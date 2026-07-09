@@ -48,6 +48,18 @@ export default async function Home() {
           Your inboxes
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Link
+            href="/live"
+            className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-violet-300 transition-all p-5 group"
+          >
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-800 to-violet-500 mb-3 flex items-center justify-center text-white text-sm">
+              💬
+            </div>
+            <div className="font-semibold group-hover:text-violet-700 transition-colors">Live Chat</div>
+            <div className="text-sm text-gray-500 mt-1">
+              Check in to take website chats live
+            </div>
+          </Link>
           {boards.map((board) => (
             <Link
               key={board.id}

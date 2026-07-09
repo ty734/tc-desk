@@ -30,6 +30,8 @@ model User {
   messages        Message[]
   invitesSent     Invite[]
   passwordResets  PasswordReset[]
+  presence        AgentPresence?
+  liveChats       ChatSession[]
 }
 
 model Session {
@@ -265,14 +267,30 @@ model Comment {
 // Every widget conversation is logged for compliance review (spec §7).
 // ticketId is set when the visitor is handed off to a human.
 model ChatSession {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   inboxId      String
   visitorEmail String?
+  visitorName  String?
   ticketId     String?
-  messages     Json // [{ role, content, at }]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  inbox        Inbox    @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  // bot -> waiting (live agent requested) -> live (agent joined) -> ended
+  status       String    @default("bot")
+  agentId      String?
+  waitingSince DateTime?
+  messages     Json // [{ role: user|assistant|agent|system, content, name?, at }]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  inbox        Inbox     @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  agent        User?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([inboxId])
+  @@index([status])
+}
+
+// An agent who is "checked in" for live chats. Presence = lastSeenAt within
+// ~30s (the Live Chat screen heartbeats while open); stale rows are ignored.
+model AgentPresence {
+  userId      String   @id
+  checkedInAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

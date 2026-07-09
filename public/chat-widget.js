@@ -1,7 +1,8 @@
 /* Living Well Desk chat widget.
  * Embed on the storefront with:
  *   <script src="https://desk.livingwellwithdrmichelle.com/chat-widget.js" defer data-brand="living-well"></script>
- * Talks to POST /api/chat on the desk. Self-contained: no dependencies.
+ * Talks to POST /api/chat on the desk; when a live agent joins, switches to
+ * polling GET /api/chat/poll for real-time agent messages. No dependencies.
  */
 (function () {
   if (window.__lwChatLoaded) return;
@@ -9,15 +10,13 @@
 
   var script = document.currentScript || document.querySelector('script[src*="chat-widget.js"]');
   var BRAND = (script && script.getAttribute("data-brand")) || "living-well";
-  var API = (function () {
-    try {
-      return new URL(script.src).origin + "/api/chat";
-    } catch (e) {
-      return "https://desk.livingwellwithdrmichelle.com/api/chat";
-    }
+  var ORIGIN = (function () {
+    try { return new URL(script.src).origin; } catch (e) { return "https://desk.livingwellwithdrmichelle.com"; }
   })();
+  var API = ORIGIN + "/api/chat";
+  var POLL = ORIGIN + "/api/chat/poll";
 
-  var SAGE = "#6E9277", TEAL = "#2E4959", NAVY = "#29404E", MINT = "#EAF0EC";
+  var SAGE = "#6E9277", TEAL = "#2E4959", NAVY = "#29404E", MINT = "#EAF0EC", GOLD = "#D6A35D";
 
   // Session id survives page navigation within the tab.
   var sessionId = sessionStorage.getItem("lw-chat-session");
@@ -27,6 +26,8 @@
   }
   var history = [];
   try { history = JSON.parse(sessionStorage.getItem("lw-chat-history") || "[]"); } catch (e) {}
+  var mode = sessionStorage.getItem("lw-chat-mode") || "bot"; // bot | waiting | live
+  var renderedCount = history.length; // messages already on screen (server-order aligned)
 
   var css = [
     "#lw-chat-bubble{position:fixed;bottom:20px;right:20px;z-index:2147483000;width:56px;height:56px;border-radius:50%;background:" + SAGE + ";border:none;cursor:pointer;box-shadow:0 4px 14px rgba(41,64,78,.3);display:flex;align-items:center;justify-content:center;transition:transform .15s ease}",
@@ -41,14 +42,21 @@
     "@keyframes lw-dot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}",
     ".lw-m{max-width:85%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;animation:lw-pop .3s cubic-bezier(.25,1.2,.4,1) both;transform-origin:bottom}",
     ".lw-m.user{transform-origin:bottom right}",
-    ".lw-m.bot{transform-origin:bottom left}",
+    ".lw-m.bot,.lw-m.agent{transform-origin:bottom left}",
     ".lw-dots{display:inline-flex;gap:4px;padding:2px 0}",
     ".lw-dots i{width:7px;height:7px;border-radius:50%;background:#8aa593;animation:lw-dot 1.2s infinite}",
     ".lw-dots i:nth-child(2){animation-delay:.15s}",
     ".lw-dots i:nth-child(3){animation-delay:.3s}",
     ".lw-m.bot{background:" + MINT + ";color:" + NAVY + ";align-self:flex-start;border-bottom-left-radius:4px}",
+    ".lw-m.agent{background:#fff;color:" + NAVY + ";align-self:flex-start;border:1.5px solid " + SAGE + ";border-bottom-left-radius:4px}",
+    ".lw-m.agent .lw-agent-name{display:block;font-size:10px;font-weight:700;color:" + SAGE + ";text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}",
     ".lw-m.user{background:" + TEAL + ";color:#fff;align-self:flex-end;border-bottom-right-radius:4px}",
     ".lw-m.typing{color:#8aa593;font-style:italic;background:" + MINT + "}",
+    ".lw-sys{align-self:center;font-size:11px;color:#9aa8a0;padding:2px 8px;animation:lw-pop .3s ease both}",
+    "#lw-chat-status{display:none;align-items:center;gap:6px;font-size:11px;color:" + NAVY + ";background:" + MINT + ";padding:6px 12px;border-bottom:1px solid #e3ebe5}",
+    "#lw-chat-status.on{display:flex}",
+    "#lw-chat-status .lw-dot{width:8px;height:8px;border-radius:50%;background:" + GOLD + "}",
+    "#lw-chat-status.live .lw-dot{background:#3fae5a}",
     "#lw-chat-form{display:flex;gap:8px;padding:10px;border-top:1px solid #e3ebe5;background:#fff}",
     "#lw-chat-input{flex:1;border:1px solid #cfdcd3;border-radius:10px;padding:9px 12px;font-size:13.5px;outline:none;font-family:inherit;resize:none;max-height:90px}",
     "#lw-chat-input:focus{border-color:" + SAGE + "}",
@@ -72,6 +80,7 @@
   panel.id = "lw-chat-panel";
   panel.innerHTML =
     '<div id="lw-chat-head"><div><b>Living Well Support</b><span>Ask us anything about our products or your order</span></div></div>' +
+    '<div id="lw-chat-status"><span class="lw-dot"></span><span id="lw-chat-status-text"></span></div>' +
     '<div id="lw-chat-msgs"></div>' +
     '<form id="lw-chat-form"><textarea id="lw-chat-input" rows="1" placeholder="Type your question…"></textarea><button id="lw-chat-send" type="submit">Send</button></form>' +
     '<div id="lw-chat-foot">AI assistant — for health questions, please talk with your dentist or doctor.</div>';
@@ -83,21 +92,96 @@
   var form = panel.querySelector("#lw-chat-form");
   var input = panel.querySelector("#lw-chat-input");
   var send = panel.querySelector("#lw-chat-send");
+  var statusBar = panel.querySelector("#lw-chat-status");
+  var statusText = panel.querySelector("#lw-chat-status-text");
 
-  function addMsg(role, text) {
+  function saveHistory() { sessionStorage.setItem("lw-chat-history", JSON.stringify(history)); }
+  function setMode(m) { mode = m; sessionStorage.setItem("lw-chat-mode", m); }
+
+  function addMsg(role, text, name) {
     var el = document.createElement("div");
-    el.className = "lw-m " + (role === "user" ? "user" : "bot");
-    el.textContent = text;
+    if (role === "system") {
+      el.className = "lw-sys";
+      el.textContent = text;
+    } else if (role === "agent") {
+      el.className = "lw-m agent";
+      var n = document.createElement("span");
+      n.className = "lw-agent-name";
+      n.textContent = name || "Support";
+      el.appendChild(n);
+      el.appendChild(document.createTextNode(text));
+    } else {
+      el.className = "lw-m " + (role === "user" ? "user" : "bot");
+      el.textContent = text;
+    }
     msgs.appendChild(el);
     msgs.scrollTop = msgs.scrollHeight;
     return el;
+  }
+
+  function setStatus(m, agentName) {
+    if (m === "waiting") {
+      statusBar.className = "on";
+      statusText.textContent = "Connecting you with a teammate…";
+    } else if (m === "live") {
+      statusBar.className = "on live";
+      statusText.textContent = "You're chatting with " + (agentName || "our team");
+    } else {
+      statusBar.className = "";
+    }
+  }
+
+  /* ---- live polling ---- */
+  var pollTimer = null;
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollOnce, 2500);
+    pollOnce();
+  }
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function pollOnce() {
+    fetch(POLL + "?sessionId=" + encodeURIComponent(sessionId))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.messages) return;
+        // Render anything new past what's on screen (visitor msgs are already
+        // rendered locally; server order matches local append order).
+        for (var i = renderedCount; i < data.messages.length; i++) {
+          var m = data.messages[i];
+          if (m.role !== "user") addMsg(m.role, m.content, m.name);
+          history.push(m);
+        }
+        if (data.messages.length > renderedCount) {
+          renderedCount = data.messages.length;
+          saveHistory();
+        }
+        if (data.status !== mode) {
+          if (data.status === "live") setMode("live");
+          else if (data.status === "waiting") setMode("waiting");
+          else {
+            // ended or reverted to bot — stop polling either way
+            setMode("bot");
+            stopPolling();
+          }
+        }
+        setStatus(mode, data.agentName);
+      })
+      .catch(function () { /* transient — next tick retries */ });
   }
 
   function greet() {
     if (history.length === 0) {
       addMsg("bot", "Hi! I'm the Living Well assistant. I can help with product questions, shipping, returns, or checking on your order. How can I help?");
     } else {
-      history.forEach(function (m) { addMsg(m.role, m.content); });
+      history.forEach(function (m) { addMsg(m.role, m.content, m.name); });
+      renderedCount = history.length;
+    }
+    if (mode === "waiting" || mode === "live") {
+      setStatus(mode);
+      startPolling();
     }
   }
   var greeted = false;
@@ -124,7 +208,18 @@
     input.value = "";
     addMsg("user", text);
     history.push({ role: "user", content: text });
-    sessionStorage.setItem("lw-chat-history", JSON.stringify(history));
+    renderedCount = history.length;
+    saveHistory();
+
+    // Live modes: just deliver the message; replies arrive via polling.
+    if (mode === "waiting" || mode === "live") {
+      fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand: BRAND, sessionId: sessionId, messages: [{ role: "user", content: text }] }),
+      }).catch(function () {});
+      return;
+    }
 
     var typing = addMsg("bot", "");
     typing.classList.add("typing");
@@ -134,7 +229,19 @@
     fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brand: BRAND, sessionId: sessionId, messages: history }),
+      body: JSON.stringify({
+        brand: BRAND,
+        sessionId: sessionId,
+        // Agent messages become assistant context so the bot knows what a
+        // human already told the customer; system notes are dropped.
+        messages: history
+          .filter(function (m) { return m.role !== "system"; })
+          .map(function (m) {
+            return m.role === "agent"
+              ? { role: "assistant", content: "[" + (m.name || "Agent") + " (human teammate) said]: " + m.content }
+              : { role: m.role, content: m.content };
+          }),
+      }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -142,7 +249,13 @@
         var reply = data.reply || "Sorry, something went wrong. Please email support@livingwellwithdrmichelle.com.";
         addMsg("bot", reply);
         history.push({ role: "assistant", content: reply });
-        sessionStorage.setItem("lw-chat-history", JSON.stringify(history));
+        renderedCount = history.length;
+        saveHistory();
+        if (data.status === "waiting") {
+          setMode("waiting");
+          setStatus("waiting");
+          startPolling();
+        }
       })
       .catch(function () {
         typing.remove();
