@@ -71,6 +71,15 @@ export default function TicketModal({
     noEmail?: boolean;
     error?: string;
     storeHandle?: string;
+    subscriptions?: {
+      productTitle: string;
+      variantTitle: string | null;
+      status: string;
+      quantity: number;
+      price: string | null;
+      nextChargeDate: string | null;
+      frequency: string;
+    }[];
     orders: {
       name: string;
       legacyResourceId: string;
@@ -638,6 +647,36 @@ export default function TicketModal({
               ))}
             </div>
           )}
+          {shopify && shopify.configured && !shopify.noEmail && (shopify.subscriptions?.length ?? 0) > 0 && (
+            <>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-violet-900/70 mt-5 mb-3">
+                Subscriptions
+              </h4>
+              <div className="space-y-2">
+                {shopify.subscriptions!.map((sub, i) => (
+                  <div key={i} className="bg-white rounded-xl border border-violet-100 shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800 truncate">
+                        {sub.productTitle}
+                      </span>
+                      <span className="flex-1" />
+                      <OrderStatusChip label={sub.status.toUpperCase()} />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {sub.quantity}× {sub.frequency}
+                      {sub.price ? ` · $${sub.price}` : ""}
+                    </p>
+                    {sub.nextChargeDate && sub.status === "active" && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Next charge:{" "}
+                        {new Date(sub.nextChargeDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
       </div>
     </div>
@@ -645,7 +684,7 @@ export default function TicketModal({
 }
 
 function OrderStatusChip({ label }: { label: string }) {
-  const good = ["FULFILLED", "PAID"].includes(label);
+  const good = ["FULFILLED", "PAID", "ACTIVE"].includes(label);
   const warn = ["UNFULFILLED", "PARTIALLY_FULFILLED", "PENDING", "PARTIALLY_PAID"].includes(label);
   return (
     <span

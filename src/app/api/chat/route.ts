@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { searchKb } from "@/lib/kb";
 import { fetchOrdersByEmail, resolveShopifyToken } from "@/lib/shopify";
+import { getSubscriptionsByEmail, rechargeKeyForBrand } from "@/lib/recharge";
 import { corsHeaders } from "@/lib/cors";
 import { appendChatMessage, onlineAgents } from "@/lib/livechat";
 
@@ -55,6 +56,8 @@ COMPLIANCE RULES (mandatory — this is a health-products company and you speak 
 
 ORDER STATUS: if the customer asks about their order, ask for the email used at checkout (and order number if they have it), then call get_order_status. Share fulfillment status and tracking. If nothing is found, offer handoff.
 
+SUBSCRIPTIONS: if the customer asks about their subscription (next charge, what they're subscribed to, frequency, whether it's active), ask for their account email and call get_subscriptions. You can SHARE that information, but you can NEVER change, skip, pause, or cancel a subscription yourself. For any change, point them to the "Manage subscription" link in their subscription confirmation emails / account page, or offer request_human. For cancellation policy questions, search the KB.
+
 HANDOFF: call request_human when (a) the customer asks for a person, (b) you can't answer confidently from the KB, (c) the topic is health-sensitive or involves refunds/order changes, or (d) the customer is upset. Call it right away with whatever info you have — email is NOT required on the first call. The tool result tells you what happened:
 - LIVE_REQUESTED → a teammate is online and being pinged. Tell the customer you're connecting them with a person now and to hang tight for a moment.
 - NO_AGENTS_ONLINE → nobody is available for live chat. Ask for their email address, then call request_human AGAIN with the email to create a ticket.
@@ -82,6 +85,18 @@ const TOOLS = [
       type: "object",
       properties: {
         email: { type: "string", description: "Customer email used at checkout" },
+      },
+      required: ["email"],
+    },
+  },
+  {
+    name: "get_subscriptions",
+    description:
+      "Look up the customer's Recharge subscriptions by their account email. Read-only: returns products, status, next charge date, and frequency.",
+    input_schema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Customer's account email" },
       },
       required: ["email"],
     },
@@ -293,6 +308,21 @@ export async function POST(req: Request) {
                           `${o.name} (${o.createdAt.slice(0, 10)}): ${o.fulfillmentStatus}, ${o.financialStatus}, total $${o.total}. Items: ${o.lineItems.map((li) => `${li.quantity}x ${li.title}`).join(", ")}. Tracking: ${o.tracking.filter((t) => t.number).map((t) => `${t.company ?? ""} ${t.number} ${t.url ?? ""}`).join("; ") || "none yet"}`
                       )
                       .join("\n");
+          }
+        } else if (tu.name === "get_subscriptions") {
+          const key = rechargeKeyForBrand(inbox.brand);
+          if (!key || !input.email) result = "Subscription lookup unavailable.";
+          else {
+            const subs = await getSubscriptionsByEmail(key, input.email);
+            result =
+              subs.length === 0
+                ? "No subscriptions found for that email."
+                : subs
+                    .map(
+                      (s) =>
+                        `${s.productTitle}${s.variantTitle ? ` (${s.variantTitle})` : ""}: ${s.status}, qty ${s.quantity}, ${s.frequency}${s.nextChargeDate ? `, next charge ${s.nextChargeDate.slice(0, 10)}` : ""}${s.price ? `, $${s.price}` : ""}${s.cancelledAt ? `, cancelled ${s.cancelledAt.slice(0, 10)}` : ""}`
+                    )
+                    .join("\n");
           }
         } else if (tu.name === "request_human") {
           const emailOk = !!input.email && /.+@.+\..+/.test(input.email);

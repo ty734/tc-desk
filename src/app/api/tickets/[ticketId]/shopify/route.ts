@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, getBoardMembership } from "@/lib/auth";
 import { fetchOrdersByEmail, resolveShopifyToken } from "@/lib/shopify";
+import { getSubscriptionsByEmail, rechargeKeyForBrand, type RechargeSubscription } from "@/lib/recharge";
 
 // Read-only order lookup for the ticket sidebar (spec §8). Uses the ticket's
 // Inbox store credentials, so each brand queries its own Shopify.
@@ -27,15 +28,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ticketI
     return NextResponse.json({ configured: true, noEmail: true, orders: [] });
   }
 
-  const result = await fetchOrdersByEmail({
-    shopifyDomain: ticket.inbox.shopifyDomain,
-    token,
-    email: ticket.customerEmail,
-  });
+  // Orders + subscriptions fetched together; Recharge is optional per brand.
+  const rcKey = rechargeKeyForBrand(ticket.inbox.brand);
+  const [result, subscriptions] = await Promise.all([
+    fetchOrdersByEmail({
+      shopifyDomain: ticket.inbox.shopifyDomain,
+      token,
+      email: ticket.customerEmail,
+    }),
+    rcKey
+      ? getSubscriptionsByEmail(rcKey, ticket.customerEmail).catch((err): RechargeSubscription[] => {
+          console.error("[recharge]", err);
+          return [];
+        })
+      : Promise.resolve([] as RechargeSubscription[]),
+  ]);
   if ("error" in result) {
     console.error("[shopify]", result.error);
-    return NextResponse.json({ configured: true, error: "Shopify lookup failed.", orders: [] }, { status: 502 });
+    return NextResponse.json({ configured: true, error: "Shopify lookup failed.", orders: [], subscriptions }, { status: 502 });
   }
 
-  return NextResponse.json({ configured: true, orders: result.orders, storeHandle: result.storeHandle });
+  return NextResponse.json({ configured: true, orders: result.orders, storeHandle: result.storeHandle, subscriptions });
 }
