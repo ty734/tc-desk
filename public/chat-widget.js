@@ -9,6 +9,20 @@
   window.__lwChatLoaded = true;
 
   var script = document.currentScript || document.querySelector('script[src*="chat-widget.js"]');
+
+  // Pages where the widget should never appear. Shopify checkout/thank-you
+  // never render theme.liquid anyway; these defaults are belt-and-suspenders.
+  // Hide it on more pages by adding a comma-separated attribute to the tag:
+  //   data-exclude-paths="/pages/some-landing,/account"
+  var EXCLUDE = ["/checkout", "/checkouts", "/challenge", "/password"];
+  var extra = script && script.getAttribute("data-exclude-paths");
+  if (extra) extra.split(",").forEach(function (p) { p = p.trim(); if (p) EXCLUDE.push(p); });
+  var path = location.pathname;
+  for (var i = 0; i < EXCLUDE.length; i++) {
+    if (path === EXCLUDE[i] || path.indexOf(EXCLUDE[i] + "/") === 0 || path.indexOf(EXCLUDE[i]) === 0 && EXCLUDE[i].length > 1) {
+      return;
+    }
+  }
   var BRAND = (script && script.getAttribute("data-brand")) || "living-well";
   var ORIGIN = (function () {
     try { return new URL(script.src).origin; } catch (e) { return "https://desk.livingwellwithdrmichelle.com"; }
