@@ -79,6 +79,7 @@ model Inbox {
   createdAt     DateTime  @default(now())
   tickets       Ticket[]
   kbChunks      KbChunk[]
+  chatSessions  ChatSession[]
 }
 
 model Board {
@@ -259,4 +260,19 @@ model Comment {
   createdAt DateTime @default(now())
   ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+// Every widget conversation is logged for compliance review (spec §7).
+// ticketId is set when the visitor is handed off to a human.
+model ChatSession {
+  id           String   @id @default(cuid())
+  inboxId      String
+  visitorEmail String?
+  ticketId     String?
+  messages     Json // [{ role, content, at }]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  inbox        Inbox    @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+
+  @@index([inboxId])
 }
