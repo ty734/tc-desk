@@ -37,7 +37,15 @@
     "#lw-chat-head b{font-size:15px;font-weight:600}",
     "#lw-chat-head span{font-size:11px;opacity:.85;display:block}",
     "#lw-chat-msgs{flex:1;overflow-y:auto;padding:14px;background:#fbfcfb;display:flex;flex-direction:column;gap:8px}",
-    ".lw-m{max-width:85%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word}",
+    "@keyframes lw-pop{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}",
+    "@keyframes lw-dot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}",
+    ".lw-m{max-width:85%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;animation:lw-pop .3s cubic-bezier(.25,1.2,.4,1) both;transform-origin:bottom}",
+    ".lw-m.user{transform-origin:bottom right}",
+    ".lw-m.bot{transform-origin:bottom left}",
+    ".lw-dots{display:inline-flex;gap:4px;padding:2px 0}",
+    ".lw-dots i{width:7px;height:7px;border-radius:50%;background:#8aa593;animation:lw-dot 1.2s infinite}",
+    ".lw-dots i:nth-child(2){animation-delay:.15s}",
+    ".lw-dots i:nth-child(3){animation-delay:.3s}",
     ".lw-m.bot{background:" + MINT + ";color:" + NAVY + ";align-self:flex-start;border-bottom-left-radius:4px}",
     ".lw-m.user{background:" + TEAL + ";color:#fff;align-self:flex-end;border-bottom-right-radius:4px}",
     ".lw-m.typing{color:#8aa593;font-style:italic;background:" + MINT + "}",
@@ -118,8 +126,9 @@
     history.push({ role: "user", content: text });
     sessionStorage.setItem("lw-chat-history", JSON.stringify(history));
 
-    var typing = addMsg("bot", "…");
+    var typing = addMsg("bot", "");
     typing.classList.add("typing");
+    typing.innerHTML = '<span class="lw-dots"><i></i><i></i><i></i></span>';
     send.disabled = true;
 
     fetch(API, {
