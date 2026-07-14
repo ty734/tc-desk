@@ -19,6 +19,7 @@ export type MessageData = {
   toAddr: string;
   subject: string | null;
   bodyText: string | null;
+  bodyHtml: string | null;
   createdAt: string;
   author: { id: string; name: string } | null;
   attachments: { id: string; filename: string; contentType: string; blobUrl: string; sizeBytes: number | null }[];

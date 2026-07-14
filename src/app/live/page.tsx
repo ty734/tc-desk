@@ -95,7 +95,12 @@ export default function LiveChatPage() {
   }, [refreshSessions]);
 
   useEffect(() => {
-    if (!openId) return;
+    // Closing a chat clears openId; also clear the panel content so it doesn't
+    // linger in the right pane (the view renders on openChat, not openId).
+    if (!openId) {
+      setOpenChat(null);
+      return;
+    }
     refreshOpenChat();
     const t = setInterval(refreshOpenChat, 2500);
     return () => clearInterval(t);
@@ -321,9 +326,11 @@ export default function LiveChatPage() {
           )}
         </aside>
 
-        {/* Open conversation */}
+        {/* Open conversation. Gated on openId (not just openChat) so an
+            in-flight poll that resolves after a close can't repopulate the
+            panel — no selection always means the placeholder. */}
         <main className="flex-1 flex flex-col min-w-0 bg-violet-50/40">
-          {!openChat ? (
+          {!openId || !openChat ? (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
               {waiting.length > 0 ? "Accept a waiting chat to start talking." : "Select a chat."}
             </div>

@@ -33,6 +33,76 @@ function NoteBody({ body, members }: { body: string; members: Member[] }) {
   return <p className="text-sm text-gray-700 whitespace-pre-wrap">{parts}</p>;
 }
 
+/** Renders untrusted customer email HTML inside a sandboxed iframe: no scripts
+ *  can run (no allow-scripts), links open in a new tab, and the email's own CSS
+ *  can't leak into the app. Height auto-fits the content. */
+function EmailHtmlFrame({ html }: { html: string }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(80);
+  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">
+<style>
+  html,body{margin:0;padding:0;}
+  body{font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2937;word-wrap:break-word;overflow-wrap:anywhere;}
+  img{max-width:100%;height:auto;} table{max-width:100%;} *{max-width:100%;box-sizing:border-box;}
+  a{color:#6d4a9c;}
+  blockquote{margin:0.5em 0;padding-left:0.8em;border-left:3px solid #e5e7eb;color:#6b7280;}
+</style></head><body>${html}</body></html>`;
+  return (
+    <iframe
+      ref={ref}
+      title="Email content"
+      sandbox="allow-same-origin allow-popups"
+      srcDoc={srcDoc}
+      className="w-full border-0 block"
+      style={{ height }}
+      onLoad={() => {
+        try {
+          const doc = ref.current?.contentDocument;
+          if (doc?.body) setHeight(Math.min(doc.body.scrollHeight + 4, 1400));
+        } catch {
+          /* cross-origin guard — leave default height */
+        }
+      }}
+    />
+  );
+}
+
+/** A single email message body. Fixes the blank-message bug (HTML-only emails)
+ *  and adds a quoted-history / original-email toggle on inbound messages. */
+function MessageBody({ m }: { m: MessageData }) {
+  const [showOriginal, setShowOriginal] = useState(false);
+  const hasText = !!m.bodyText && m.bodyText.trim().length > 0;
+  const hasHtml = !!m.bodyHtml && m.bodyHtml.trim().length > 0;
+
+  // Blank-message fix: no plain-text body but HTML exists → render the HTML.
+  if (!hasText && hasHtml) {
+    return <EmailHtmlFrame html={m.bodyHtml!} />;
+  }
+
+  return (
+    <>
+      <p className="text-sm text-gray-800 whitespace-pre-wrap">
+        {m.bodyText || "(no content)"}
+      </p>
+      {hasHtml && m.direction === "inbound" && (
+        <div className="mt-2">
+          <button
+            onClick={() => setShowOriginal((v) => !v)}
+            className="text-xs font-medium text-gray-400 hover:text-gray-600"
+          >
+            {showOriginal ? "Hide original email" : "Show original email / quoted history"}
+          </button>
+          {showOriginal && (
+            <div className="mt-2 border-t border-gray-100 pt-2">
+              <EmailHtmlFrame html={m.bodyHtml!} />
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function TicketModal({
   ticket,
   columns,
@@ -66,6 +136,7 @@ export default function TicketModal({
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [reply, setReply] = useState("");
+  const draftKey = `lw-desk-draft-${ticket.id}`;
   const [sending, setSending] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [canned, setCanned] = useState<{ id: string; title: string; body: string }[] | null>(null);
@@ -121,6 +192,27 @@ export default function TicketModal({
       cancelled = true;
     };
   }, [ticket.id]);
+
+  // Draft auto-save: restore any saved draft for this ticket on open, then
+  // persist as the agent types so work is never lost on navigation/refresh.
+  // Only writes non-empty drafts; it's cleared explicitly on a successful send.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) setReply(saved);
+    } catch {
+      /* localStorage unavailable — skip */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+  useEffect(() => {
+    if (!reply.trim()) return;
+    try {
+      localStorage.setItem(draftKey, reply);
+    } catch {
+      /* localStorage unavailable — skip */
+    }
+  }, [reply, draftKey]);
 
   // Shopify order lookup — re-runs if the customer email is edited.
   useEffect(() => {
@@ -206,6 +298,11 @@ export default function TicketModal({
     setSending(false);
     if (res.ok) {
       setReply("");
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        /* localStorage unavailable — skip */
+      }
       setMessages((m) => [...m, data.message]);
       if (data.status) onPatch({ status: data.status });
     } else {
@@ -415,9 +512,7 @@ export default function TicketModal({
                       })}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                    {m.bodyText || "(no text body)"}
-                  </p>
+                  <MessageBody m={m} />
                   {m.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {m.attachments.map((a) => (
