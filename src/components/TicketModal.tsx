@@ -115,6 +115,7 @@ export default function TicketModal({
   onSave,
   onDelete,
   onChangeColumn,
+  onMerged,
 }: {
   ticket: TicketData;
   boardId: string;
@@ -128,6 +129,7 @@ export default function TicketModal({
   onSave: (body: Record<string, unknown>) => void;
   onDelete: () => void;
   onChangeColumn: (columnId: string) => void;
+  onMerged: (targetId: string) => void;
 }) {
   const [subject, setSubject] = useState(ticket.subject);
   const [customerName, setCustomerName] = useState(ticket.customerName ?? "");
@@ -138,6 +140,21 @@ export default function TicketModal({
   const [reply, setReply] = useState("");
   const draftKey = `lw-desk-draft-${ticket.id}`;
   const [sending, setSending] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeCandidates, setMergeCandidates] = useState<
+    | {
+        id: string;
+        number: number | null;
+        subject: string;
+        customerName: string | null;
+        customerEmail: string | null;
+        status: string;
+        lastMessageAt: string | null;
+      }[]
+    | null
+  >(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [canned, setCanned] = useState<{ id: string; title: string; body: string }[] | null>(null);
   const [cannedOpen, setCannedOpen] = useState(false);
@@ -284,6 +301,34 @@ export default function TicketModal({
     setCannedOpen(false);
   }
 
+  async function openMerge() {
+    setMergeOpen(true);
+    setMergeError(null);
+    if (mergeCandidates === null) {
+      const res = await fetch(`/api/tickets/${ticket.id}/merge`);
+      const data = await res.json().catch(() => ({}));
+      setMergeCandidates(res.ok ? data.candidates ?? [] : []);
+    }
+  }
+
+  async function doMerge(targetId: string) {
+    if (merging) return;
+    setMerging(true);
+    setMergeError(null);
+    const res = await fetch(`/api/tickets/${ticket.id}/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetTicketId: targetId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setMerging(false);
+    if (res.ok) {
+      onMerged(data.targetId ?? targetId);
+    } else {
+      setMergeError(data.error ?? "Could not merge the tickets.");
+    }
+  }
+
   async function sendReply(e: React.FormEvent) {
     e.preventDefault();
     if (!reply.trim() || sending) return;
@@ -372,6 +417,55 @@ export default function TicketModal({
             </select>
           )}
           <div className="flex-1" />
+          <div className="relative">
+            <button
+              onClick={() => (mergeOpen ? setMergeOpen(false) : openMerge())}
+              className="text-gray-400 hover:text-violet-700 text-sm px-2"
+              title="Merge this ticket into another"
+            >
+              Merge
+            </button>
+            {mergeOpen && (
+              <div className="absolute right-0 top-8 z-20 w-80 bg-white border border-gray-200 rounded-xl shadow-xl p-3">
+                <p className="text-xs text-gray-500 mb-2">
+                  Merge this ticket into another. Its messages and notes move over and this ticket is
+                  archived.
+                </p>
+                {mergeCandidates === null ? (
+                  <p className="text-sm text-gray-400 py-3 text-center">Loading…</p>
+                ) : mergeCandidates.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-3 text-center">
+                    No other tickets from this customer.
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {mergeCandidates.map((c) => (
+                      <button
+                        key={c.id}
+                        disabled={merging}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Merge this ticket into #${c.number ?? "?"}? This ticket will be archived.`
+                            )
+                          )
+                            doMerge(c.id);
+                        }}
+                        className="w-full text-left rounded-lg border border-gray-100 hover:border-violet-300 hover:bg-violet-50 p-2 disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <span className="font-semibold text-gray-700">#{c.number ?? "?"}</span>
+                          <span className="uppercase tracking-wide">{c.status}</span>
+                        </div>
+                        <div className="text-sm text-gray-800 truncate">{c.subject}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {mergeError && <p className="text-xs text-red-600 mt-2">{mergeError}</p>}
+              </div>
+            )}
+          </div>
           <button
             onClick={() => {
               if (confirm("Delete this ticket?")) onDelete();

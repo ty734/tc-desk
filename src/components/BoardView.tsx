@@ -326,6 +326,8 @@ export default function BoardView({
   const [openTicketId, setOpenTicketId] = useState<string | null>(initialTicketId);
   const [showInvite, setShowInvite] = useState(false);
   const [showFields, setShowFields] = useState(false);
+  const [assigneeFilter, setAssigneeFilter] = useState<"all" | "mine" | "unassigned">("all");
+  const [search, setSearch] = useState("");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -416,6 +418,39 @@ export default function BoardView({
     () => columns.flatMap((c) => c.tickets).find((t) => t.id === openTicketId) ?? null,
     [columns, openTicketId]
   );
+
+  // Ticket queues: filter every column by assignee. "Assigned to me" and
+  // "Unassigned" run over the assigneeId data that already exists; the Closed
+  // column already serves as "Recently Closed".
+  const filteredColumns = useMemo(() => {
+    if (assigneeFilter === "all") return columns;
+    return columns.map((c) => ({
+      ...c,
+      tickets: c.tickets.filter((t) =>
+        assigneeFilter === "mine" ? t.assigneeId === currentUserId : !t.assigneeId
+      ),
+    }));
+  }, [columns, assigneeFilter, currentUserId]);
+
+  // Ticket search: match by number, customer name/email, or subject across
+  // every loaded ticket (all columns, open and closed). Read-only — clicking a
+  // result just opens that ticket.
+  const searchResults = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [];
+    const all = columns.flatMap((c) => c.tickets.map((t) => ({ ...t, columnName: c.name })));
+    return all
+      .filter((t) => {
+        const num = String(t.number ?? "");
+        return (
+          num.includes(q.replace(/^#/, "")) ||
+          (t.customerName ?? "").toLowerCase().includes(q) ||
+          (t.customerEmail ?? "").toLowerCase().includes(q) ||
+          (t.subject ?? "").toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 12);
+  }, [search, columns]);
 
   /* ---- helpers ---- */
 
@@ -732,6 +767,88 @@ export default function BoardView({
           </button>
         )}
         <div className="flex-1" />
+        {/* Ticket search — number, customer name/email, or subject */}
+        <div className="relative w-72">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tickets — #, name, email, subject"
+            className="w-full text-sm border border-gray-300 rounded-lg pl-8 pr-7 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-500"
+          />
+          <svg
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" strokeLinecap="round" />
+          </svg>
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-sm leading-none"
+              title="Clear"
+            >
+              ×
+            </button>
+          )}
+          {search.trim() && (
+            <div className="absolute right-0 top-9 z-30 w-96 max-h-[70vh] overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl">
+              {searchResults.length === 0 ? (
+                <p className="text-sm text-gray-400 px-4 py-3">No tickets match &ldquo;{search}&rdquo;.</p>
+              ) : (
+                searchResults.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      setOpenTicketId(t.id);
+                      setSearch("");
+                    }}
+                    className="w-full text-left border-b border-gray-100 last:border-0 hover:bg-violet-50 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className="font-semibold text-gray-700">#{t.number ?? "?"}</span>
+                      <span className="uppercase tracking-wide rounded bg-gray-100 px-1.5 py-0.5 text-[10px]">
+                        {t.columnName}
+                      </span>
+                      <span className="flex-1" />
+                      <span className="truncate max-w-[45%]">
+                        {t.customerName || t.customerEmail || ""}
+                      </span>
+                    </div>
+                    <div className="text-sm text-gray-800 truncate mt-0.5">{t.subject}</div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        {/* Ticket queues — quick assignee filter over the whole board */}
+        <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden text-sm">
+          {(
+            [
+              ["all", "All"],
+              ["mine", "Assigned to me"],
+              ["unassigned", "Unassigned"],
+            ] as const
+          ).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setAssigneeFilter(val)}
+              className={`px-3 py-1 font-medium transition-colors ${
+                assigneeFilter === val
+                  ? "bg-violet-700 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {isOwner && (
           <button
             onClick={() => setShowFields(true)}
@@ -751,7 +868,7 @@ export default function BoardView({
       >
         <main className="board-scroll flex-1 overflow-x-auto overflow-y-hidden">
           <div className="flex gap-4 p-4 h-full items-start">
-            {columns.map((col) => (
+            {filteredColumns.map((col) => (
               <Column
                 key={col.id}
                 column={col}
@@ -796,6 +913,16 @@ export default function BoardView({
           onSave={(body) => apiPatchTicket(openTicket.id, body)}
           onDelete={() => deleteTicket(openTicket.id)}
           onChangeColumn={(columnId) => moveTicketToColumn(openTicket.id, columnId)}
+          onMerged={(targetId) => {
+            // Source ticket is now archived server-side; drop it from the board
+            // and jump the agent to the surviving (target) ticket.
+            touch();
+            const sourceId = openTicket.id;
+            setColumns((cols) =>
+              cols.map((c) => ({ ...c, tickets: c.tickets.filter((t) => t.id !== sourceId) }))
+            );
+            setOpenTicketId(targetId);
+          }}
         />
       )}
       {showInvite && (
