@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { getCurrentUser } from "@/lib/auth";
+import AskPanel from "@/components/AskPanel";
 
 export const metadata: Metadata = {
   title: "Living Well Desk",
@@ -15,14 +17,19 @@ export const viewport: Viewport = {
   themeColor: "#6E9277",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Only mount the internal copilot for logged-in agents.
+  const user = await getCurrentUser();
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        {user && <AskPanel />}
+      </body>
     </html>
   );
 }
