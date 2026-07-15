@@ -78,6 +78,7 @@ model Inbox {
   shopifyToken  String // Admin API token (env-ref/encrypted; placeholder until Phase D)
   boardId       String    @unique // the board that holds this inbox's tickets
   ticketCounter Int       @default(0) // atomic source of human-readable ticket numbers
+  autoresponderMode String @default("off") // off | live — AI first-response acknowledgment
   board         Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   tickets       Ticket[]

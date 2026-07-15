@@ -3,6 +3,7 @@ import { put } from "@vercel/blob";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/mailer";
 import { nextTicketNumber } from "@/lib/tickets";
+import { evaluateAndDraft, sendAutoReply } from "@/lib/autoresponder";
 
 // Postmark inbound webhook (spec §4). The ?token= query param is the Inbox's
 // inboundToken — it both authenticates the call and selects the brand/inbox,
@@ -265,11 +266,41 @@ export async function POST(req: Request) {
     }
   }
 
+  // ---- AI first-response acknowledgment ----
+  // Fires only on a NEW ticket from a real customer (not auto/bounce, not
+  // Amazon relay), and only when the inbox autoresponder is switched to "live".
+  // The lib does its own junk filtering; failures never break ticketing.
+  let autoReplied = false;
+  if (created && !isAuto && !isAmazon && inbox.autoresponderMode === "live") {
+    try {
+      const decision = await evaluateAndDraft({
+        fromName,
+        fromEmail,
+        subject: p.Subject ?? "",
+        bodyText: message.bodyText ?? "",
+      });
+      if (decision.respond && decision.reply) {
+        const sentId = await sendAutoReply({
+          inbox,
+          ticketId: ticket.id,
+          ticketSubject: ticket.subject,
+          customerEmail: fromEmail,
+          inboundMessageIdHeader: message.messageIdHeader,
+          replyText: decision.reply,
+        });
+        autoReplied = !!sentId;
+      }
+    } catch (err) {
+      console.error("[inbound] autoresponder failed", err);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     ticketId: ticket.id,
     messageId: message.id,
     created,
+    autoReplied,
     ...(attachmentErrors.length ? { attachmentErrors } : {}),
   });
 }
