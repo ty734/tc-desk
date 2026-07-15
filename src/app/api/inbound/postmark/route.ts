@@ -3,7 +3,7 @@ import { put } from "@vercel/blob";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/mailer";
 import { nextTicketNumber } from "@/lib/tickets";
-import { evaluateAndDraft, sendAutoReply } from "@/lib/autoresponder";
+import { evaluateAndDraft, sendAutoReply, isDeskJunk } from "@/lib/autoresponder";
 
 // Postmark inbound webhook (spec §4). The ?token= query param is the Inbox's
 // inboundToken — it both authenticates the call and selects the brand/inbox,
@@ -266,12 +266,22 @@ export async function POST(req: Request) {
     }
   }
 
+  // ---- Desk noise cleanup ----
+  // Obvious junk (bounces, auto-replies, pure notification/marketing senders)
+  // is archived off the team's board immediately on arrival. High-confidence
+  // only — real customers (incl. Shopify-forwarded messages) are never touched.
+  // Reversible (archived, not deleted) and still findable in the DB.
+  const junkReason = created ? isDeskJunk(fromEmail, p.Subject ?? "") : null;
+  if (junkReason) {
+    await db.ticket.update({ where: { id: ticket.id }, data: { archived: true } });
+  }
+
   // ---- AI first-response acknowledgment ----
-  // Fires only on a NEW ticket from a real customer (not auto/bounce, not
+  // Fires only on a NEW ticket from a real customer (not auto/bounce/junk, not
   // Amazon relay), and only when the inbox autoresponder is switched to "live".
   // The lib does its own junk filtering; failures never break ticketing.
   let autoReplied = false;
-  if (created && !isAuto && !isAmazon && inbox.autoresponderMode === "live") {
+  if (created && !isAuto && !isAmazon && !junkReason && inbox.autoresponderMode === "live") {
     try {
       const decision = await evaluateAndDraft({
         fromName,
@@ -301,6 +311,7 @@ export async function POST(req: Request) {
     messageId: message.id,
     created,
     autoReplied,
+    ...(junkReason ? { archivedAsJunk: junkReason } : {}),
     ...(attachmentErrors.length ? { attachmentErrors } : {}),
   });
 }

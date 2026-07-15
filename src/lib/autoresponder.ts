@@ -31,6 +31,23 @@ export function isLikelyNoise(fromEmail: string, subject: string): string | null
   return null;
 }
 
+// Desk noise cleanup — HIGH-CONFIDENCE junk only, so a real customer is never
+// archived. Deliberately tight: bounces/auto-replies and a short list of
+// pure-notification/marketing senders that are NEVER a customer. Excludes
+// shopify.com ("New customer message" forwards a real buyer) and voicemail.
+const JUNK_ONLY_DOMAINS = ["manychat.com", "rechargemail.com", "mrsmeyers.com", "klaviyomail.com"];
+export function isDeskJunk(fromEmail: string, subject: string): string | null {
+  const f = fromEmail.toLowerCase();
+  const s = (subject ?? "").toLowerCase();
+  // Never archive real customer forwards / voicemails.
+  if (f.includes("shopify.com") || f.includes("mangovoice")) return null;
+  if (/mailer-daemon|postmaster|^bounce|delivery-?status/.test(f)) return "bounce/system";
+  if (/^(automatic reply|auto(matic)? response|out of office|undeliverable|delivery status notification|returned mail|mail delivery)/i.test(s))
+    return "auto-reply/bounce";
+  if (JUNK_ONLY_DOMAINS.some((d) => f.endsWith(d))) return "notification/marketing sender";
+  return null;
+}
+
 type Inbound = { fromName: string | null; fromEmail: string; subject: string; bodyText: string };
 type Decision = { respond: boolean; reason: string; reply?: string };
 
