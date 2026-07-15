@@ -11,7 +11,8 @@ export type FieldData = {
   options: FieldOptionData[];
 };
 
-// Customer-visible email in the ticket thread.
+// Customer-visible message in the ticket thread (email, or a social
+// comment/DM on the Meta channels).
 export type MessageData = {
   id: string;
   direction: string; // inbound | outbound
@@ -23,6 +24,14 @@ export type MessageData = {
   createdAt: string;
   author: { id: string; name: string } | null;
   attachments: { id: string; filename: string; contentType: string; blobUrl: string; sizeBytes: number | null }[];
+  // Social (Meta) fields — absent/null on email and chat messages.
+  platformMessageId?: string | null;
+  platformThreadId?: string | null;
+  windowExpiresAt?: string | null; // DMs: end of the 24h reply window
+  aiDraft?: string | null; // AI-suggested reply awaiting human approval
+  aiConfidence?: number | null;
+  aiIntent?: string | null;
+  aiFlagReason?: string | null;
 };
 
 // INTERNAL note — never emailed to the customer.
@@ -39,7 +48,7 @@ export type TicketData = {
   columnId: string;
   subject: string;
   position: number;
-  channel: string; // email | amazon | chat | ig | fb
+  channel: string; // email | amazon | chat | facebook_comment | facebook_dm | instagram_comment | instagram_dm
   status: string; // new | open | pending | solved | closed
   customerName: string | null;
   customerEmail: string | null;

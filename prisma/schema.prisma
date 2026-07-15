@@ -79,6 +79,11 @@ model Inbox {
   boardId       String    @unique // the board that holds this inbox's tickets
   ticketCounter Int       @default(0) // atomic source of human-readable ticket numbers
   autoresponderMode String @default("off") // off | live — AI first-response acknowledgment
+  // --- Social (Meta: Facebook Page + Instagram) — see workflows/social-engagement-system ---
+  metaPageId       String? @unique // Facebook Page id this inbox ingests (webhook entry.id)
+  metaIgId         String? @unique // Instagram professional-account id linked to the Page
+  metaPageTokenRef String? // env-ref ("env:VAR") for the Page access token — NEVER the raw token
+  autoSendMode     String  @default("off") // off | high_confidence | all — social AI auto-send dial
   board         Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   tickets       Ticket[]
@@ -127,7 +132,7 @@ model Ticket {
   columnId        String // = status column
   subject         String
   position        Float              @default(0)
-  channel         String             @default("email") // email | amazon | chat | ig | fb
+  channel         String             @default("email") // email | amazon | chat | facebook_comment | facebook_dm | instagram_comment | instagram_dm
   status          String             @default("new") // mirror of column for querying: new|open|pending|solved|closed
   customerId      String?
   customerEmail   String?
@@ -172,6 +177,14 @@ model Message {
   references        String? // space-joined chain
   provider          String       @default("postmark")
   providerMessageId String?
+  // --- Social (Meta) fields — null for email/chat messages ---
+  platformMessageId String? // FB/IG comment id or message mid (dedupe + threading)
+  platformThreadId  String? // FB post id / IG media id (comments) or PSID/IGSID convo key (DMs)
+  windowExpiresAt   DateTime? // DMs: inbound time + 24h — the Meta messaging window
+  aiDraft           String? // AI-suggested reply awaiting human approval (never auto-sent while dial is off)
+  aiConfidence      Float? // 0..1 confidence from the draft step
+  aiIntent          String? // classified intent (order_status | product_question | …)
+  aiFlagReason      String? // compliance flag — a flagged draft is never auto-send eligible
   createdAt         DateTime     @default(now())
   ticket            Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   author            User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
@@ -179,6 +192,8 @@ model Message {
 
   @@index([ticketId])
   @@index([messageIdHeader])
+  @@index([platformMessageId])
+  @@index([platformThreadId])
 }
 
 model Customer {

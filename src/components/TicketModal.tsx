@@ -201,14 +201,25 @@ export default function TicketModal({
               (c: { id: string; body: string; createdAt: string; author: { id: string; name: string } }) => c
             )
           );
-          setMessages(data.ticket.messages ?? []);
+          const msgs: MessageData[] = data.ticket.messages ?? [];
+          setMessages(msgs);
           setNotesLoaded(true);
+          // Social tickets: pre-fill the composer with the AI draft — but
+          // never clobber a restored localStorage draft or typed text.
+          if (
+            ["facebook_comment", "facebook_dm", "instagram_comment", "instagram_dm"].includes(
+              ticket.channel
+            )
+          ) {
+            const draft = [...msgs].reverse().find((m) => m.direction === "inbound" && m.aiDraft)?.aiDraft;
+            if (draft) setReply((prev) => (prev.trim() ? prev : draft));
+          }
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [ticket.id]);
+  }, [ticket.id, ticket.channel]);
 
   // Draft auto-save: restore any saved draft for this ticket on open, then
   // persist as the agent types so work is never lost on navigation/refresh.
@@ -283,7 +294,33 @@ export default function TicketModal({
         );
 
   const isAmazon = ticket.channel === "amazon";
-  const canReply = isAmazon || !!(customerEmail || ticket.customerEmail);
+  // Social (Meta) channels: replies go back through the Graph API, not email.
+  const isSocial = ["facebook_comment", "facebook_dm", "instagram_comment", "instagram_dm"].includes(
+    ticket.channel
+  );
+  const isSocialDm = isSocial && ticket.channel.endsWith("_dm");
+  const isSocialComment = isSocial && ticket.channel.endsWith("_comment");
+  const platformLabel = ticket.channel.startsWith("facebook") ? "Facebook" : "Instagram";
+
+  // Latest inbound platform message: the reply target, the AI draft carrier,
+  // and (for DMs) the 24h-window anchor. Each new inbound resets the window.
+  // The clock is snapshotted once per modal open (render purity).
+  const [openedAt] = useState(() => Date.now());
+  const lastInboundSocial = [...messages]
+    .reverse()
+    .find((m) => m.direction === "inbound" && m.platformMessageId);
+  const dmWindowExpired =
+    isSocialDm && lastInboundSocial?.windowExpiresAt
+      ? openedAt > new Date(lastInboundSocial.windowExpiresAt).getTime()
+      : false;
+  // Past 7 days even HUMAN_AGENT can't reply — Meta offers no compliant path.
+  const dmHumanAgentExpired =
+    isSocialDm && lastInboundSocial
+      ? openedAt > new Date(lastInboundSocial.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000
+      : false;
+
+  const canReply =
+    isSocial ? !!lastInboundSocial && !dmHumanAgentExpired : isAmazon || !!(customerEmail || ticket.customerEmail);
 
   async function openCanned() {
     setCannedOpen((v) => !v);
@@ -334,7 +371,9 @@ export default function TicketModal({
     if (!reply.trim() || sending) return;
     setSending(true);
     setReplyError(null);
-    const res = await fetch(`/api/tickets/${ticket.id}/reply`, {
+    // Social tickets send through the Meta connector; everything else emails.
+    const endpoint = isSocial ? `/api/tickets/${ticket.id}/social-reply` : `/api/tickets/${ticket.id}/reply`;
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bodyText: reply.trim() }),
@@ -594,7 +633,11 @@ export default function TicketModal({
                       {m.direction === "inbound" ? "Customer" : "Reply"}
                     </span>
                     <span className="font-medium text-gray-700">
-                      {m.direction === "inbound" ? m.fromAddr : m.author?.name ?? m.fromAddr}
+                      {m.direction === "inbound"
+                        ? isSocial
+                          ? ticket.customerName ?? m.fromAddr
+                          : m.fromAddr
+                        : m.author?.name ?? (isSocial ? "Auto-sent (AI)" : m.fromAddr)}
                     </span>
                     <span className="flex-1" />
                     <span>
@@ -634,7 +677,13 @@ export default function TicketModal({
         <div className="px-6 pb-5">
           <div className="border-2 border-violet-300 rounded-xl bg-violet-50/40 p-4">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-semibold text-violet-800">✉️ Reply to customer</h4>
+              <h4 className="text-sm font-semibold text-violet-800">
+                {isSocialComment
+                  ? `💬 Reply publicly on ${platformLabel}`
+                  : isSocialDm
+                    ? `📩 Reply by ${platformLabel} DM`
+                    : "✉️ Reply to customer"}
+              </h4>
               <span className="flex-1" />
               <div className="relative">
                 <button
@@ -672,17 +721,60 @@ export default function TicketModal({
               </div>
             </div>
             <p className="text-xs text-violet-700/70 mb-2">
-              {isAmazon
-                ? "Sends through Amazon's buyer messaging relay (Amazon strips attachments)."
-                : canReply
-                  ? `Sends a real email to ${customerEmail || ticket.customerEmail} from your support address.`
-                  : "Add a customer email above to enable replies."}
+              {isSocialComment
+                ? `Posts a PUBLIC reply under ${customerName || ticket.customerName || "the customer"}'s ${platformLabel} comment — anyone can read it.`
+                : isSocialDm
+                  ? `Sends a private ${platformLabel} direct message to ${customerName || ticket.customerName || "the customer"}.`
+                  : isAmazon
+                    ? "Sends through Amazon's buyer messaging relay (Amazon strips attachments)."
+                    : canReply
+                      ? `Sends a real email to ${customerEmail || ticket.customerEmail} from your support address.`
+                      : "Add a customer email above to enable replies."}
             </p>
+            {isSocial && lastInboundSocial?.aiDraft && (
+              <div
+                className={`text-xs rounded-lg border px-3 py-2 mb-2 ${
+                  lastInboundSocial.aiFlagReason
+                    ? "bg-amber-50 border-amber-300 text-amber-800"
+                    : "bg-violet-100/60 border-violet-200 text-violet-800"
+                }`}
+              >
+                <span className="font-semibold">🤖 AI draft pre-filled</span>
+                {typeof lastInboundSocial.aiConfidence === "number" && (
+                  <span> · confidence {Math.round(lastInboundSocial.aiConfidence * 100)}%</span>
+                )}
+                {lastInboundSocial.aiIntent && <span> · {lastInboundSocial.aiIntent.replace(/_/g, " ")}</span>}
+                <span> — review and edit before sending.</span>
+                {lastInboundSocial.aiFlagReason && (
+                  <div className="font-semibold mt-0.5">⚠️ Flagged: {lastInboundSocial.aiFlagReason}</div>
+                )}
+              </div>
+            )}
+            {isSocialDm && dmHumanAgentExpired && (
+              <div className="text-xs rounded-lg border border-red-300 bg-red-50 text-red-700 px-3 py-2 mb-2">
+                This conversation is more than 7 days old — Meta does not allow any reply (even with the
+                HUMAN_AGENT tag). Ask the customer to message again, or reach them by email.
+              </div>
+            )}
+            {isSocialDm && dmWindowExpired && !dmHumanAgentExpired && (
+              <div className="text-xs rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2 mb-2">
+                ⏱ Past the 24h messaging window — human replies only. Your send will carry Meta&apos;s
+                HUMAN_AGENT tag (allowed up to 7 days after their last message).
+              </div>
+            )}
             <form onSubmit={sendReply}>
               <textarea
                 rows={4}
                 className="w-full border border-violet-300 rounded-lg p-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
-                placeholder={canReply ? "Write your reply to the customer…" : "No customer email on this ticket."}
+                placeholder={
+                  canReply
+                    ? isSocial
+                      ? "Write (or edit the AI draft of) your reply…"
+                      : "Write your reply to the customer…"
+                    : isSocial
+                      ? "No reply is possible on this ticket."
+                      : "No customer email on this ticket."
+                }
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 disabled={!canReply || sending}
@@ -693,7 +785,13 @@ export default function TicketModal({
                   disabled={!canReply || !reply.trim() || sending}
                   className="bg-violet-700 hover:bg-violet-800 disabled:opacity-40 text-white text-sm font-semibold rounded-lg px-5 py-2"
                 >
-                  {sending ? "Sending…" : "Send reply"}
+                  {sending
+                    ? "Sending…"
+                    : isSocialComment
+                      ? "Post public reply"
+                      : isSocialDm
+                        ? "Send DM"
+                        : "Send reply"}
                 </button>
                 <span className="text-xs text-gray-400">Sending moves the ticket to Pending.</span>
               </div>

@@ -20,6 +20,12 @@ const CHANNEL_STYLES: Record<string, { label: string; bg: string; text: string }
   chat: { label: "Chat", bg: "#bbf7d0", text: "#166534" },
   ig: { label: "IG", bg: "#fbcfe8", text: "#9d174d" },
   fb: { label: "FB", bg: "#e9d5ff", text: "#6b21a8" },
+  // Social engagement channels (Meta Phase 1) — comment vs DM stay visually
+  // distinct because comment replies are PUBLIC.
+  facebook_comment: { label: "FB Comment", bg: "#e9d5ff", text: "#6b21a8" },
+  facebook_dm: { label: "FB DM", bg: "#ddd6fe", text: "#5b21b6" },
+  instagram_comment: { label: "IG Comment", bg: "#fbcfe8", text: "#9d174d" },
+  instagram_dm: { label: "IG DM", bg: "#fecdd3", text: "#9f1239" },
 };
 
 /** Small colored badge for the ticket's channel (email/amazon/chat/…). */
