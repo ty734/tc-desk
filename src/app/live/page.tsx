@@ -51,6 +51,10 @@ export default function LiveChatPage() {
   const [openChat, setOpenChat] = useState<{ status: string; visitorName: string | null; visitorEmail: string | null; messages: ChatEntry[]; agent: { id: string; name: string } | null } | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [chatSearch, setChatSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<
+    { id: string; status: string; visitorName: string | null; visitorEmail: string | null; preview: string; messageCount: number }[]
+  >([]);
   const knownWaiting = useRef<Set<string>>(new Set());
   const checkedInRef = useRef(false);
   const msgsRef = useRef<HTMLDivElement>(null);
@@ -109,6 +113,23 @@ export default function LiveChatPage() {
   useEffect(() => {
     msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight });
   }, [openChat?.messages.length]);
+
+  // Debounced chat search over all past chats (name, email, or transcript).
+  useEffect(() => {
+    const q = chatSearch.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const res = await fetch(`/api/live/search?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const d = await res.json();
+        setSearchResults(d.results ?? []);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [chatSearch]);
 
   async function toggleCheckin() {
     const res = await fetch("/api/live/checkin", {
@@ -225,6 +246,55 @@ export default function LiveChatPage() {
       <div className="flex-1 flex min-h-0">
         {/* Session list */}
         <aside className="w-80 shrink-0 border-r border-gray-200 bg-white overflow-y-auto p-3 space-y-2">
+          <div className="relative">
+            <input
+              value={chatSearch}
+              onChange={(e) => setChatSearch(e.target.value)}
+              placeholder="Search past chats — name, email, words"
+              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+            {chatSearch && (
+              <button
+                onClick={() => setChatSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-sm leading-none"
+                title="Clear"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {chatSearch.trim().length >= 2 ? (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-1">
+                Search results
+              </p>
+              {searchResults.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">No chats found.</p>
+              ) : (
+                searchResults.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      setOpenId(s.id);
+                      setChatSearch("");
+                    }}
+                    className="w-full text-left border border-gray-100 bg-gray-50 hover:border-violet-300 rounded-xl p-3"
+                  >
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className="uppercase tracking-wide">{s.status}</span>
+                      <span className="flex-1" />
+                      <span>{s.messageCount} msg</span>
+                    </div>
+                    <p className="text-sm font-medium text-gray-700 mt-1">
+                      {s.visitorName || s.visitorEmail || "Store visitor"}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate mt-0.5">{s.preview}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : (
+          <>
           {!checkedIn && (
             <p className="text-xs text-gray-400 bg-violet-50 border border-violet-100 rounded-lg p-3">
               Check in (top right) to get pinged when a visitor asks for a person. The widget only
@@ -323,6 +393,8 @@ export default function LiveChatPage() {
                 </div>
               ))}
             </div>
+          )}
+          </>
           )}
         </aside>
 

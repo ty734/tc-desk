@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { getCurrentUser } from "@/lib/auth";
 import AskPanel from "@/components/AskPanel";
+import LiveChatWatcher from "@/components/LiveChatWatcher";
 
 export const metadata: Metadata = {
   title: "Living Well Desk",
@@ -29,6 +30,7 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         {user && <AskPanel />}
+        {user && <LiveChatWatcher />}
       </body>
     </html>
   );
