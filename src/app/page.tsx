@@ -15,7 +15,7 @@ export default async function Home() {
     redirect(userCount === 0 ? "/register" : "/login");
   }
 
-  const [memberships, checkedIn] = await Promise.all([
+  const [memberships, checkedIn, socialInboxes] = await Promise.all([
     db.boardMember.findMany({
       where: { userId: user.id },
       include: {
@@ -32,7 +32,13 @@ export default async function Home() {
     db.agentPresence.count({
       where: { lastSeenAt: { gte: new Date(Date.now() - PRESENCE_TTL_MS) } },
     }),
+    // Which boards are dedicated Social boards (FB/IG tickets)?
+    db.inbox.findMany({
+      where: { socialBoardId: { not: null } },
+      select: { socialBoardId: true },
+    }),
   ]);
+  const socialBoardIds = new Set(socialInboxes.map((i) => i.socialBoardId));
   const boards = memberships
     .map((m) => m.board)
     .filter((b) => !b.archived)
@@ -102,19 +108,36 @@ export default async function Home() {
               className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-violet-400 hover:-translate-y-0.5 transition-all p-8 group"
             >
               <div className="w-16 h-16 rounded-2xl bg-violet-100 flex items-center justify-center mb-5">
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2.5a1.5 1.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a1.5 1.5 0 0 0 0-5V7z"
-                    fill="#2E4959"
-                  />
-                  <path d="M14 6v2m0 3v2m0 3v2" stroke="#EAF0EC" strokeWidth="1.6" strokeLinecap="round" strokeDasharray="1.5 2.5" />
-                </svg>
+                {socialBoardIds.has(board.id) ? (
+                  // Social board: at-symbol glyph (FB/IG comments + DMs).
+                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="8.5" stroke="#6E9277" strokeWidth="2" />
+                    <circle cx="12" cy="12" r="3.4" stroke="#2E4959" strokeWidth="2" />
+                    <path
+                      d="M15.4 12v1.4a2 2 0 0 0 4 0V12"
+                      stroke="#6E9277"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <circle cx="18.8" cy="6.2" r="2.6" fill="#D6A35D" />
+                  </svg>
+                ) : (
+                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2.5a1.5 1.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a1.5 1.5 0 0 0 0-5V7z"
+                      fill="#2E4959"
+                    />
+                    <path d="M14 6v2m0 3v2m0 3v2" stroke="#EAF0EC" strokeWidth="1.6" strokeLinecap="round" strokeDasharray="1.5 2.5" />
+                  </svg>
+                )}
               </div>
               <div className="text-2xl font-bold group-hover:text-violet-700 transition-colors">
                 {board.name}
               </div>
               <div className="text-base text-gray-500 mt-1.5">
-                Email and Amazon tickets, all in one place
+                {socialBoardIds.has(board.id)
+                  ? "Facebook & Instagram comments and DMs"
+                  : "Email and Amazon tickets, all in one place"}
               </div>
               <div className="mt-4 text-sm font-medium text-violet-800">
                 {board._count.tickets} open ticket{board._count.tickets === 1 ? "" : "s"} ·{" "}

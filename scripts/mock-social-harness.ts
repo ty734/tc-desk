@@ -141,6 +141,7 @@ function makeInbox(overrides: Partial<InboxRow> = {}): InboxRow {
     metaIgId: "IG_2002",
     metaPageTokenRef: "env:LW_META_PAGE_TOKEN",
     board: {
+      id: "board_lw",
       columns: [
         { id: "col_new", name: "New", position: 0 },
         { id: "col_open", name: "Open", position: 1 },
@@ -148,7 +149,30 @@ function makeInbox(overrides: Partial<InboxRow> = {}): InboxRow {
       ],
       fields: [{ id: "fld_channel", name: "Channel", options: [{ id: "opt_fb", label: "Facebook" }] }],
     },
+    socialBoard: null, // launch state: fall back to the primary board
     ...overrides,
+  };
+}
+
+/** The dedicated Social board as seeded by scripts/seed-social-board.ts. */
+function makeSocialBoard() {
+  return {
+    id: "board_social",
+    columns: [
+      { id: "col_s_new", name: "New", position: 1 },
+      { id: "col_s_open", name: "Open", position: 2 },
+      { id: "col_s_pending", name: "Pending", position: 3 },
+    ],
+    fields: [
+      {
+        id: "fld_s_channel",
+        name: "Channel",
+        options: [
+          { id: "opt_s_fb", label: "Facebook" },
+          { id: "opt_s_ig", label: "Instagram" },
+        ],
+      },
+    ],
   };
 }
 
@@ -423,6 +447,60 @@ async function main() {
   unknownAccount.entry![0].id = "PAGE_UNKNOWN";
   const unknownRes = await ingestSocialEvents(parseMetaWebhook(unknownAccount), offDeps);
   check("an unmapped Page/IG account is skipped", !!unknownRes[0].skipped?.includes("no inbox mapped"));
+
+  // 4b. Social board routing: with inbox.socialBoard set, tickets land on the
+  // dedicated Social board (its columns + its Channel field) while keeping
+  // inboxId = the same inbox. With it null (all sections above), they fell
+  // back to the primary board.
+  section("Social board routing (Inbox.socialBoard)");
+  check(
+    "socialBoard null: every ticket fell back to the PRIMARY board",
+    off.tickets.length > 0 && off.tickets.every((t) => t.boardId === "board_lw" && String(t.columnId).startsWith("col_"))
+  );
+
+  const soc = makeStubDb(makeInbox({ socialBoard: makeSocialBoard() }));
+  const socDeps: IngestDeps = {
+    db: soc.db,
+    nextTicketNumber: async () => ++counter,
+    draft: draftWith(GOOD_DRAFT),
+    graphClient: makeStubGraph().client,
+  };
+  const socResults = await ingestSocialEvents(
+    [...parseMetaWebhook(fbCommentPayload), ...parseMetaWebhook(igCommentPayload), ...parseMetaWebhook(fbDmPayload)],
+    socDeps
+  );
+  check("socialBoard set: all events ingest cleanly", socResults.length === 3 && socResults.every((r) => !r.skipped && r.created));
+  check(
+    "new social tickets get boardId = the SOCIAL board, not the primary",
+    soc.tickets.length === 3 && soc.tickets.every((t) => t.boardId === "board_social")
+  );
+  check(
+    "social tickets use the social board's own columns (New)",
+    soc.tickets.every((t) => t.columnId === "col_s_new" && t.status === "new")
+  );
+  check(
+    "social tickets KEEP inboxId = living-well (replies/token/KB unchanged)",
+    soc.tickets.every((t) => t.inboxId === "inbox_lw") && socResults.every((r) => r.inboxId === "inbox_lw")
+  );
+  const socChips = soc.fieldValues as { create?: { fieldId?: string; optionId?: string } }[];
+  check(
+    "Channel chip uses the social board's field: FB + IG options both populate",
+    socChips.length === 3 &&
+      socChips.every((c) => c.create?.fieldId === "fld_s_channel") &&
+      socChips.filter((c) => c.create?.optionId === "opt_s_fb").length === 2 &&
+      socChips.filter((c) => c.create?.optionId === "opt_s_ig").length === 1
+  );
+
+  // Threading still works on the social board: a reply on the same FB post
+  // reopens the SAME ticket (scoped by inboxId, not boardId).
+  const socFollowUp: MetaWebhookPayload = JSON.parse(JSON.stringify(fbCommentPayload));
+  socFollowUp.entry![0].changes![0].value!.comment_id = "PAGE_1001_soc_2";
+  socFollowUp.entry![0].changes![0].value!.message = "Following up on my question!";
+  const socSecond = await ingestSocialEvents(parseMetaWebhook(socFollowUp), socDeps);
+  check(
+    "threading on the social board: same post = same ticket, no new ticket",
+    !socSecond[0].created && socSecond[0].ticketId === socResults[0].ticketId && soc.tickets.length === 3
+  );
 
   // 5. Moderation dial ON — the would-send path (still zero network: stub client).
   section("Moderation dial: high_confidence would-send");

@@ -84,7 +84,12 @@ model Inbox {
   metaIgId         String? @unique // Instagram professional-account id linked to the Page
   metaPageTokenRef String? // env-ref ("env:VAR") for the Page access token — NEVER the raw token
   autoSendMode     String  @default("off") // off | high_confidence | all — social AI auto-send dial
-  board         Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  // Dedicated board for FB/IG tickets. Nullable: while unset, social tickets
+  // fall back to the primary board (pre-seed behavior). Tickets keep
+  // inboxId = this inbox either way, so replies/token/KB/threading are untouched.
+  socialBoardId String?   @unique
+  socialBoard   Board?    @relation("InboxSocialBoard", fields: [socialBoardId], references: [id], onDelete: SetNull)
+  board         Board     @relation("InboxPrimaryBoard", fields: [boardId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   tickets       Ticket[]
   kbChunks      KbChunk[]
@@ -102,7 +107,8 @@ model Board {
   fields    CustomField[]
   tickets   Ticket[]
   invites   Invite[]
-  inbox     Inbox?
+  inbox     Inbox?        @relation("InboxPrimaryBoard")
+  socialForInbox Inbox?   @relation("InboxSocialBoard")
 }
 
 model BoardMember {

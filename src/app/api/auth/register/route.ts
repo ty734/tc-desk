@@ -45,10 +45,14 @@ export async function POST(req: Request) {
     }
   }
 
-  // Every agent automatically joins all inbox (support) boards. The first
-  // account becomes their owner.
-  const inboxes = await db.inbox.findMany({ select: { boardId: true } });
-  for (const { boardId } of inboxes) {
+  // Every agent automatically joins all inbox (support) boards — the primary
+  // board AND the dedicated Social board where one exists. The first account
+  // becomes their owner.
+  const inboxes = await db.inbox.findMany({ select: { boardId: true, socialBoardId: true } });
+  const joinBoardIds = new Set(
+    inboxes.flatMap((i) => (i.socialBoardId ? [i.boardId, i.socialBoardId] : [i.boardId]))
+  );
+  for (const boardId of joinBoardIds) {
     await db.boardMember.upsert({
       where: { boardId_userId: { boardId, userId: user.id } },
       create: { boardId, userId: user.id, role: userCount === 0 ? "owner" : "member" },

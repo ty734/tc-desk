@@ -40,6 +40,12 @@ export const HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // HUMAN_AGENT tag
 // Keeping this to exactly the calls ingest makes lets the harness stub it in
 // ~100 lines. The route passes the real client: `db as unknown as SocialDb`.
 
+export type IngestBoard = {
+  id: string;
+  columns: { id: string; name: string; position: number }[];
+  fields: { id: string; name: string; options: { id: string; label: string }[] }[];
+};
+
 export type InboxRow = {
   id: string;
   brand: string;
@@ -49,10 +55,9 @@ export type InboxRow = {
   metaPageId: string | null;
   metaIgId: string | null;
   metaPageTokenRef: string | null;
-  board: {
-    columns: { id: string; name: string; position: number }[];
-    fields: { id: string; name: string; options: { id: string; label: string }[] }[];
-  };
+  board: IngestBoard;
+  /** Dedicated Social board; null = fall back to the primary board. */
+  socialBoard: IngestBoard | null;
 };
 
 export type TicketRow = {
@@ -216,7 +221,10 @@ export async function ingestSocialEvent(event: SocialEvent, deps: IngestDeps): P
   const inbox = await db.inbox.findFirst({
     where:
       event.platform === "facebook" ? { metaPageId: event.accountId } : { metaIgId: event.accountId },
-    include: { board: { include: { columns: true, fields: { include: { options: true } } } } },
+    include: {
+      board: { include: { columns: true, fields: { include: { options: true } } } },
+      socialBoard: { include: { columns: true, fields: { include: { options: true } } } },
+    },
   });
   if (!inbox) return { event, skipped: `no inbox mapped to ${event.platform} account ${event.accountId}` };
 
@@ -248,7 +256,12 @@ export async function ingestSocialEvent(event: SocialEvent, deps: IngestDeps): P
   }
 
   const channel = channelFor(event);
-  const columns = [...inbox.board.columns].sort((a, b) => a.position - b.position);
+  // Social tickets live on the dedicated Social board when one is configured;
+  // until then (socialBoardId null) they land on the primary board as before.
+  // Either way the ticket keeps inboxId = this inbox, so replies, the Page
+  // token, KB grounding, and dedupe/threading are unaffected.
+  const board = inbox.socialBoard ?? inbox.board;
+  const columns = [...board.columns].sort((a, b) => a.position - b.position);
   const colByStatus = (s: string) => columns.find((c) => c.name.trim().toLowerCase() === s) ?? columns[0];
   let created = false;
 
@@ -261,7 +274,7 @@ export async function ingestSocialEvent(event: SocialEvent, deps: IngestDeps): P
       data: {
         number,
         inboxId: inbox.id,
-        boardId: inbox.boardId,
+        boardId: board.id,
         columnId: newCol.id,
         subject: subjectFor(event),
         position: (last?.position ?? 0) + 1,
@@ -276,9 +289,10 @@ export async function ingestSocialEvent(event: SocialEvent, deps: IngestDeps): P
       },
     });
 
-    // Channel chip so board filters work (silent no-op until the FB/IG
-    // options are added to the Channel field — a Phase 1b data step).
-    const channelField = inbox.board.fields.find((f) => f.name === "Channel");
+    // Channel chip so board filters work. The Social board seeded by
+    // scripts/seed-social-board.ts ships a Channel field with Facebook +
+    // Instagram options; on a board without them this is a silent no-op.
+    const channelField = board.fields.find((f) => f.name === "Channel");
     const label = event.platform === "facebook" ? "facebook" : "instagram";
     const opt = channelField?.options.find((o) => o.label.toLowerCase() === label);
     if (channelField && opt) {
