@@ -45,6 +45,8 @@ export async function POST(req: Request) {
   }
 
   const events = parseMetaWebhook(payload as Parameters<typeof parseMetaWebhook>[0]);
+  console.log("[mw-debug] raw:", rawBody.slice(0, 2000));
+  console.log("[mw-debug] parsed:", events.length, JSON.stringify(events));
   if (events.length === 0) return NextResponse.json({ ok: true, events: 0 });
 
   const results = await ingestSocialEvents(events, {
@@ -53,6 +55,7 @@ export async function POST(req: Request) {
     draft: (input) => draftSocialReply(input, { searchKb }),
   });
 
+  console.log("[mw-debug] results:", JSON.stringify(results.map((r) => ({ skipped: r.skipped, ingested: !!r.messageId }))));
   return NextResponse.json({
     ok: true,
     events: events.length,
