@@ -156,6 +156,9 @@ export default function TicketModal({
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [hiding, setHiding] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const [hideError, setHideError] = useState<string | null>(null);
   const [canned, setCanned] = useState<{ id: string; title: string; body: string }[] | null>(null);
   const [cannedOpen, setCannedOpen] = useState(false);
   const [shopify, setShopify] = useState<{
@@ -391,6 +394,32 @@ export default function TicketModal({
       if (data.status) onPatch({ status: data.status });
     } else {
       setReplyError(data.error ?? "Could not send the reply.");
+    }
+  }
+
+  // Hide the inbound comment on the platform (comment tickets only) instead
+  // of replying — the moderation path for nasty/negative comments. The route
+  // records an internal note and moves the ticket to resolved.
+  async function hideComment() {
+    if (hiding || hidden) return;
+    if (
+      !confirm(
+        `Hide this comment on ${platformLabel}? It stays visible to the person who wrote it but no one else. You can unhide it from the platform.`
+      )
+    )
+      return;
+    setHiding(true);
+    setHideError(null);
+    const res = await fetch(`/api/tickets/${ticket.id}/hide-comment`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    setHiding(false);
+    if (res.ok) {
+      setHidden(true);
+      if (data.status) {
+        onPatch({ status: data.status, ...(data.columnId ? { columnId: data.columnId } : {}) });
+      }
+    } else {
+      setHideError(data.error ?? "Could not hide the comment.");
     }
   }
 
@@ -780,6 +809,7 @@ export default function TicketModal({
                 disabled={!canReply || sending}
               />
               {replyError && <p className="text-sm text-red-600 mt-1">{replyError}</p>}
+              {hideError && <p className="text-sm text-red-600 mt-1">{hideError}</p>}
               <div className="flex items-center gap-3 mt-2">
                 <button
                   disabled={!canReply || !reply.trim() || sending}
@@ -793,7 +823,22 @@ export default function TicketModal({
                         ? "Send DM"
                         : "Send reply"}
                 </button>
-                <span className="text-xs text-gray-400">Sending moves the ticket to Pending.</span>
+                {isSocialComment && (
+                  <button
+                    type="button"
+                    onClick={hideComment}
+                    disabled={!lastInboundSocial || hiding || hidden}
+                    title={`Hide this comment on ${platformLabel} instead of replying`}
+                    className="text-violet-700 bg-white border border-violet-300 hover:bg-violet-100 disabled:opacity-40 text-sm font-semibold rounded-lg px-4 py-2"
+                  >
+                    {hiding ? "Hiding…" : hidden ? "Comment hidden ✓" : "Hide comment"}
+                  </button>
+                )}
+                <span className="text-xs text-gray-400">
+                  {isSocialComment
+                    ? "Replying moves the ticket to Pending; hiding resolves it."
+                    : "Sending moves the ticket to Pending."}
+                </span>
               </div>
             </form>
           </div>

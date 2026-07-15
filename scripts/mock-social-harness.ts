@@ -24,6 +24,7 @@ import {
 } from "../src/lib/meta-ingest";
 import { draftSocialReply, type SocialDraftDecision } from "../src/lib/social-draft";
 import { sendFacebookDm, type GraphHttpClient } from "../src/lib/meta-social";
+import { hideTicketComment, type HideDb, type HideTicketRow } from "../src/lib/hide-comment";
 
 // ---- Hard no-network guard --------------------------------------------------------
 // Any code path that reaches for the real network fails the run loudly.
@@ -619,6 +620,169 @@ async function main() {
       humanGraph.calls[0].body.messaging_type === "MESSAGE_TAG" &&
       humanGraph.calls[0].body.tag === "HUMAN_AGENT" &&
       humanGraph.calls[0].url.endsWith("/me/messages")
+  );
+
+  // 9. Hide comment (agent action) — /api/tickets/{id}/hide-comment core logic.
+  section("Hide comment (agent moderation action)");
+  const AGENT = { id: "user_agent_1", name: "Test Agent" };
+  function makeHideDb() {
+    const comments: AnyRow[] = [];
+    const updates: { where: AnyRow; data: AnyRow }[] = [];
+    const db: HideDb = {
+      comment: {
+        async create(args: { data: AnyRow }) {
+          comments.push(args.data);
+          return args.data;
+        },
+      },
+      ticket: {
+        async update(args: { where: AnyRow; data: AnyRow }) {
+          updates.push(args);
+          return args;
+        },
+      },
+    };
+    return { db, comments, updates };
+  }
+  function makeHideTicket(overrides: Partial<HideTicketRow> = {}): HideTicketRow {
+    return {
+      id: "tkt_hide_1",
+      channel: "facebook_comment",
+      status: "open",
+      inbox: { metaPageTokenRef: "env:LW_META_PAGE_TOKEN" },
+      board: {
+        columns: [
+          { id: "col_h_new", name: "New", position: 0 },
+          { id: "col_h_open", name: "Open", position: 1 },
+          { id: "col_h_solved", name: "Solved", position: 2 },
+        ],
+      },
+      messages: [{ direction: "inbound", platformMessageId: "PAGE_1001_98765" }],
+      ...overrides,
+    };
+  }
+
+  // FB comment: POST /{comment-id} with is_hidden=true (never IG's `hide`).
+  const fbHide = makeHideDb();
+  const fbHideGraph = makeStubGraph();
+  const fbHideRes = await hideTicketComment({
+    ticket: makeHideTicket(),
+    agent: AGENT,
+    db: fbHide.db,
+    graphClient: fbHideGraph.client,
+  });
+  check(
+    "FB hide hits POST /{comment-id} with is_hidden=true + token",
+    fbHideRes.ok &&
+      fbHideGraph.calls.length === 1 &&
+      fbHideGraph.calls[0].url.endsWith("/PAGE_1001_98765") &&
+      fbHideGraph.calls[0].body.is_hidden === true &&
+      fbHideGraph.calls[0].body.hide === undefined &&
+      fbHideGraph.calls[0].body.access_token === "FAKE_TEST_TOKEN_NOT_REAL"
+  );
+  check(
+    "FB hide records an internal Comment attributed to the agent",
+    fbHide.comments.length === 1 &&
+      fbHide.comments[0].authorId === AGENT.id &&
+      fbHide.comments[0].ticketId === "tkt_hide_1" &&
+      fbHide.comments[0].body === "Comment hidden on Facebook by Test Agent."
+  );
+  check(
+    "FB hide moves the ticket to the Solved column + status",
+    fbHide.updates.length === 1 &&
+      fbHide.updates[0].data.columnId === "col_h_solved" &&
+      fbHide.updates[0].data.status === "solved" &&
+      fbHideRes.ok &&
+      fbHideRes.columnId === "col_h_solved" &&
+      fbHideRes.ticketStatus === "solved"
+  );
+
+  // IG comment: POST /{ig-comment-id} with hide=true (never FB's `is_hidden`).
+  const igHide = makeHideDb();
+  const igHideGraph = makeStubGraph();
+  const igHideRes = await hideTicketComment({
+    ticket: makeHideTicket({
+      id: "tkt_hide_2",
+      channel: "instagram_comment",
+      messages: [{ direction: "inbound", platformMessageId: "igc_31337" }],
+    }),
+    agent: AGENT,
+    db: igHide.db,
+    graphClient: igHideGraph.client,
+  });
+  check(
+    "IG hide hits POST /{ig-comment-id} with hide=true (not is_hidden)",
+    igHideRes.ok &&
+      igHideGraph.calls.length === 1 &&
+      igHideGraph.calls[0].url.endsWith("/igc_31337") &&
+      igHideGraph.calls[0].body.hide === true &&
+      igHideGraph.calls[0].body.is_hidden === undefined
+  );
+  check(
+    "IG hide note names the right platform",
+    igHide.comments[0]?.body === "Comment hidden on Instagram by Test Agent."
+  );
+
+  // No Solved column → falls back to Closed.
+  const closedHide = makeHideDb();
+  const closedRes = await hideTicketComment({
+    ticket: makeHideTicket({
+      board: {
+        columns: [
+          { id: "col_c_new", name: "New", position: 0 },
+          { id: "col_c_closed", name: "Closed", position: 1 },
+        ],
+      },
+    }),
+    agent: AGENT,
+    db: closedHide.db,
+    graphClient: makeStubGraph().client,
+  });
+  check(
+    "without a Solved column the ticket falls back to Closed",
+    closedRes.ok && closedRes.columnId === "col_c_closed" && closedRes.ticketStatus === "closed"
+  );
+
+  // Non-comment channels are rejected before any Graph call or DB write.
+  for (const channel of ["facebook_dm", "instagram_dm", "email"]) {
+    const rej = makeHideDb();
+    const rejGraph = makeStubGraph();
+    const rejRes = await hideTicketComment({
+      ticket: makeHideTicket({ channel }),
+      agent: AGENT,
+      db: rej.db,
+      graphClient: rejGraph.client,
+    });
+    check(
+      `channel "${channel}" is REJECTED (400) with no Graph call and no DB write`,
+      !rejRes.ok &&
+        rejRes.httpStatus === 400 &&
+        rejGraph.calls.length === 0 &&
+        rej.comments.length === 0 &&
+        rej.updates.length === 0
+    );
+  }
+
+  // A Graph failure surfaces as a 502 and leaves the ticket untouched.
+  const failHide = makeHideDb();
+  const failClient: GraphHttpClient = async () => ({
+    ok: false,
+    status: 400,
+    json: async () => ({ error: { message: "Unsupported post request." } }),
+  });
+  const failRes = await hideTicketComment({
+    ticket: makeHideTicket(),
+    agent: AGENT,
+    db: failHide.db,
+    graphClient: failClient,
+  });
+  check(
+    "a Graph error returns 502 and writes neither note nor status change",
+    !failRes.ok &&
+      failRes.httpStatus === 502 &&
+      failRes.error === "Unsupported post request." &&
+      failHide.comments.length === 0 &&
+      failHide.updates.length === 0
   );
 
   // ---- Summary --------------------------------------------------------------------
