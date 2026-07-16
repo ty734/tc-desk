@@ -48,8 +48,10 @@ export type SocialDraftDecision = {
 };
 
 export type SocialDraftDeps = {
-  /** KB retrieval (src/lib/kb.ts searchKb in production; stubbed in the harness). */
-  searchKb: (inboxId: string, query: string, limit?: number) => Promise<KbHit[]>;
+  /** KB retrieval (src/lib/kb.ts searchKb in production; stubbed in the harness).
+   *  opts is deliberately NOT passed at the call site: FB/IG comments are public, so
+   *  they take the default scope, which excludes Dr. Michelle's clinical content. */
+  searchKb: (inboxId: string, query: string, opts?: { limit?: number; includeClinical?: boolean }) => Promise<KbHit[]>;
   /** Model call: (system, user) → assistant text. Defaults to the Anthropic API. */
   complete?: (system: string, user: string) => Promise<string>;
 };

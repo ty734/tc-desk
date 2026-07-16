@@ -238,11 +238,15 @@ model KbChunk {
   source    String // url or doc name
   title     String?
   content   String
+  // "public" = the storefront bot may retrieve it. "clinical" = Dr. Michelle's
+  // dental-practice content (root canals, implants, ozone...); agents only.
+  scope     String                 @default("public")
   embedding Unsupported("vector")?
   createdAt DateTime               @default(now())
   inbox     Inbox                  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
 
   @@index([inboxId])
+  @@index([inboxId, scope])
 }
 
 model CustomField {

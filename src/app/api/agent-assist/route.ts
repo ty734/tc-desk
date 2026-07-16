@@ -152,7 +152,11 @@ export async function POST(req: Request) {
       let result: unknown;
       try {
         if (tu.name === "search_kb") {
-          const hits = await searchKb(inbox.id, input.query ?? "");
+          // The copilot serves trained agents, so it MAY see Dr. Michelle's clinical
+          // content — it needs it to understand context. The CLINICAL SCOPE block in the
+          // system prompt is what stops it drafting anything sendable from that material.
+          // The customer widget never passes this.
+          const hits = await searchKb(inbox.id, input.query ?? "", { includeClinical: true });
           result = hits.length
             ? hits.map((h) => `[${h.title ?? h.source}]\n${h.content}`).join("\n\n---\n\n")
             : "No knowledge base results found for that query.";

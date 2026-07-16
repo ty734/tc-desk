@@ -6,6 +6,7 @@
 // e.g.:  npx tsx scripts/ingest-kb.ts living-well "C:/.../kb-source"
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join, basename } from "path";
+import { classifyScope } from "../src/lib/clinical";
 
 const env = readFileSync(`${__dirname}/../.env`, "utf8");
 for (const k of ["DATABASE_URL", "DIRECT_URL"]) {
@@ -63,20 +64,28 @@ async function main() {
   const inbox = await db.inbox.findUnique({ where: { brand } });
   if (!inbox) throw new Error(`inbox '${brand}' not found`);
 
-  const rows: { source: string; title: string | null; content: string }[] = [];
+  const rows: { source: string; title: string | null; content: string; scope: string }[] = [];
   for (const folder of folders) {
     for (const file of walk(folder)) {
       const md = readFileSync(file, "utf8");
       const source = basename(file);
-      for (const c of chunk(md)) rows.push({ source, ...c });
+      for (const c of chunk(md)) {
+        // Tag Dr. Michelle's dental-practice content so the storefront bot can't
+        // retrieve it. See src/lib/clinical.ts for why this is precision-tuned.
+        rows.push({ source, ...c, scope: classifyScope(c.title, c.content) });
+      }
     }
   }
 
   const del = await db.kbChunk.deleteMany({ where: { inboxId: inbox.id } });
   await db.kbChunk.createMany({
-    data: rows.map((r) => ({ inboxId: inbox.id, source: r.source, title: r.title, content: r.content })),
+    data: rows.map((r) => ({
+      inboxId: inbox.id, source: r.source, title: r.title, content: r.content, scope: r.scope,
+    })),
   });
+  const clinical = rows.filter((r) => r.scope === "clinical").length;
   console.log(`[ingest] ${brand}: replaced ${del.count} chunks with ${rows.length} from ${folders.length} folder(s)`);
+  console.log(`[ingest] scope: ${rows.length - clinical} public / ${clinical} clinical (clinical is hidden from the customer bot)`);
   await db.$disconnect();
 }
 main().catch((e) => {
