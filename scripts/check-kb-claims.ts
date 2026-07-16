@@ -42,19 +42,29 @@ async function main() {
 
   const all = await prisma.kbChunk.findMany({
     where: { inboxId: inbox.id },
-    select: { source: true, content: true },
+    select: { source: true, content: true, scope: true },
   });
+  // Clinical-scoped chunks are unreachable by the customer bot (see src/lib/kb.ts —
+  // searchKb excludes them by default). A claim in there is not a live customer risk,
+  // so report it as INFO, not FAIL. Flagging it would train people to ignore this.
+  const pub = all.filter((c) => c.scope !== "clinical");
+  const clin = all.filter((c) => c.scope === "clinical");
+  console.log(`  ${pub.length} public (bot-reachable) / ${clin.length} clinical (agents only)\n`);
 
   const pats = only ? PATTERNS.filter(([p]) => p === only) : PATTERNS;
   let bad = 0;
+  let info = 0;
   for (const [pat, why] of pats) {
     // NB: Prisma `contains` compiles to SQL LIKE, where a literal % in the needle
     // becomes a wildcard ("100% safe" matches "$100.97 ... safe"). Filter in JS instead.
-    const hits = all.filter((c) =>
-      c.content.toLowerCase().includes(pat.toLowerCase()),
-    );
-    console.log(`[${hits.length ? "FAIL" : "ok  "}] ${hits.length}  "${pat}"  (${why})`);
+    const match = (c: { content: string }) => c.content.toLowerCase().includes(pat.toLowerCase());
+    const hits = pub.filter(match);
+    const clinHits = clin.filter(match);
+    const tag = hits.length ? "FAIL" : clinHits.length ? "info" : "ok  ";
+    const extra = clinHits.length ? `  (+${clinHits.length} in clinical scope, bot cannot reach)` : "";
+    console.log(`[${tag}] ${hits.length}  "${pat}"  (${why})${extra}`);
     bad += hits.length;
+    info += clinHits.length;
     const pad = only ? 320 : 90;
     for (const h of hits) {
       const i = h.content.toLowerCase().indexOf(pat.toLowerCase());
@@ -62,7 +72,11 @@ async function main() {
       console.log(`        ...${h.content.slice(Math.max(0, i - pad), i + pad).replace(/\s+/g, " ")}...\n`);
     }
   }
-  console.log(`\n${bad === 0 ? "CLEAN" : `${bad} chunk(s) carry flagged language.`}`);
+  console.log(
+    `\n${bad === 0 ? "CLEAN — no flagged language reachable by the customer bot." : `${bad} bot-reachable chunk(s) carry flagged language.`}` +
+      (info ? `\n(${info} hit(s) sit in clinical-scoped chunks — agents only, not customer-facing.)` : ""),
+  );
   await prisma.$disconnect();
+  if (bad > 0) process.exit(1);
 }
 main().catch((e) => { console.error(e); process.exit(1); });
