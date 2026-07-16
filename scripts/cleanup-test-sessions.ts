@@ -4,10 +4,12 @@
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes("--apply");
+// prefix your test session ids so they are findable, e.g. "guardrail-test-", "dirtest-"
+const PREFIX = process.argv.find((a) => !a.startsWith("--") && a !== process.argv[0] && a !== process.argv[1]) ?? "guardrail-test-";
 
 async function main() {
   const sessions = await prisma.chatSession.findMany({
-    where: { id: { startsWith: "guardrail-test-" } },
+    where: { id: { startsWith: PREFIX } },
     select: { id: true, status: true, waitingSince: true, ticketId: true, createdAt: true },
   });
   console.log(`chat sessions from this test: ${sessions.length}`);
