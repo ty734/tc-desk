@@ -55,10 +55,19 @@ const CLINICAL_TERMS = [
  * NOT clinical even though they contain a clinical word — these are ours to answer.
  * "Is your powder safe with crowns?" is product compatibility, a high-volume,
  * legitimate storefront question. Tagging it clinical would blind the bot to it.
+ *
+ * Exported so the detector (scripts/kb-detector.ts) uses the SAME exemption. When the
+ * two drifted apart, the detector reported a "classifier gap" on
+ * "Can I use the powder if I have zirconia crowns or amalgam fillings?" — a plain
+ * compatibility question the classifier had correctly left public.
+ *
+ * The line: asking whether OUR PRODUCT is safe alongside dental work = ours to answer.
+ * Asking about the dental work itself ("should I get my amalgam fillings removed?") = clinical.
  */
-const PRODUCT_CONTEXT = [
-  /\b(safe|use|using|compatible|okay|ok|fine)\b[^.?]{0,50}\b(with|for|on|around)\b[^.?]{0,50}\b(crown|veneer|implant|brace|filling|bridge|restoration|retainer)/i,
-  /\b(crown|veneer|implant|brace|filling|bridge|restoration)s?\b[^.?]{0,40}\b(safe|damage|harm|stain|scratch)/i,
+export const PRODUCT_CONTEXT = [
+  // "...use/safe ... with|for|on|around|if I have ... crown/filling/amalgam..."
+  /\b(safe|use|using|compatible|okay|ok|fine)\b[^.?]{0,60}\b(with|for|on|around|if i have|if i've had|i have)\b[^.?]{0,50}\b(crown|veneer|implant|brace|filling|bridge|restoration|retainer|amalgam|zirconia)/i,
+  /\b(crown|veneer|implant|brace|filling|bridge|restoration|amalgam)s?\b[^.?]{0,40}\b(safe|damage|harm|stain|scratch)/i,
 ];
 
 /** Anything about the dental PRACTICE rather than the store. */

@@ -21,6 +21,7 @@
  */
 import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
 import { join } from "path";
+import { classifyScope, PRODUCT_CONTEXT } from "../src/lib/clinical";
 
 type Sev = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 type Finding = {
@@ -91,7 +92,11 @@ const CLINICAL = [
   "cavitation surgery", "bone graft", "gingivitis treatment",
 ];
 // ...unless the question is plainly about product compatibility/safety, which is ours to answer.
-const PRODUCT_COMPAT = /\b(safe|use|using|compatible|okay|ok)\b[^.?]{0,40}\b(with|for|on)\b[^.?]{0,40}\b(crown|veneer|implant|braces|filling|bridge|restoration)/i;
+// Reuse the SHIPPED exemption rather than keeping a second copy. When this scanner had its
+// own narrower version, the two disagreed and it reported a phantom "CLASSIFIER GAP" on
+// "Can I use the powder if I have zirconia crowns or amalgam fillings?" — a plain
+// compatibility question the classifier had correctly left public.
+const PRODUCT_COMPAT = { test: (q: string) => PRODUCT_CONTEXT.some((re) => re.test(q)) };
 
 // ---------------------------------------------------------------- 3. FACTS
 // Confirmed by Tyler 2026-07-16. Anything disagreeing is wrong.
@@ -109,13 +114,16 @@ function walk(dir: string): string[] {
   );
 }
 
-type QA = { q: string; a: string; file: string; line: number };
+type QA = { q: string; a: string; file: string; line: number; section: string };
 
 function parse(file: string): { qas: QA[]; text: string } {
   const text = readFileSync(file, "utf8");
   const lines = text.split(/\r?\n/);
   const qas: QA[] = [];
+  let section = "(top)"; // the "## Product Title (`handle`)" this Q/A sits under
   for (let i = 0; i < lines.length; i++) {
+    const h = lines[i].match(/^##\s+(.+)/);
+    if (h) { section = h[1].trim(); continue; }
     const qm = lines[i].match(/^\*\*Q:\*\*\s*(.+)/);
     if (!qm) continue;
     let a = "";
@@ -123,7 +131,7 @@ function parse(file: string): { qas: QA[]; text: string } {
       const am = lines[j].match(/^\*\*A:\*\*\s*(.+)/);
       if (am) { a = am[1]; break; }
     }
-    qas.push({ q: qm[1].trim(), a: a.trim(), file, line: i + 1 });
+    qas.push({ q: qm[1].trim(), a: a.trim(), file, line: i + 1, section });
   }
   return { qas, text };
 }
@@ -170,16 +178,31 @@ for (const f of files) {
   }
 
   // 2. CLINICAL
+  // Since 2026-07-16 clinical chunks are TAGGED at ingest (src/lib/clinical.ts) and
+  // searchKb excludes them, so the customer bot cannot reach them. Merely FINDING
+  // clinical content is therefore not a problem — it is the system working.
+  //
+  // The finding that matters is DISAGREEMENT: this scanner's broad heuristic says
+  // "clinical" but the SHIPPED classifier says "public", which means the classifier
+  // has a gap and the bot CAN still reach it. That is the only actionable case.
   for (const x of qas) {
     const hay = `${x.q} ${x.a}`.toLowerCase();
     if (PRODUCT_COMPAT.test(x.q)) continue; // product compatibility is in scope for us
     const hit = CLINICAL.find((t) => hay.includes(t));
-    if (hit) {
+    if (!hit) continue;
+    const shipped = classifyScope(x.q, `${x.q} ${x.a}`);
+    if (shipped === "clinical") {
+      findings.push({
+        check: "CLINICAL", sev: "LOW",
+        title: `clinical topic "${hit}" — correctly scoped, bot cannot reach it`,
+        detail: `Q: ${x.q}`, where: `${short}:${x.line}`,
+      });
+    } else {
       findings.push({
         check: "CLINICAL", sev: "HIGH",
-        title: `clinical topic in the customer-bot KB: "${hit}"`,
-        detail: `Q: ${x.q}`, where: `${short}:${x.line}`,
-        quote: x.a.slice(0, 150),
+        title: `CLASSIFIER GAP: clinical topic "${hit}" is still scoped PUBLIC — the bot CAN retrieve this`,
+        detail: `Q: ${x.q}\n  Fix: add the term to CLINICAL_TERMS in src/lib/clinical.ts, re-ingest, re-run audit-kb-scope.`,
+        where: `${short}:${x.line}`, quote: x.a.slice(0, 150),
       });
     }
   }
@@ -203,23 +226,39 @@ for (const f of files) {
   }
 }
 
-// 4. CONTRADICT — same question, different answers
-const byQ = new Map<string, QA[]>();
+// 4. CONTRADICT — same question, different answers, ON THE SAME PRODUCT.
+//
+// Grouping by question text ALONE across the whole library massively overstates this:
+// "What is the recommended dosage?" legitimately differs across Tooth & Bone, Liquid
+// Vita D and the chewable, because it is a different product each time. Each PDP renders
+// only its own FAQs, and each KB chunk carries its "## Product Title" heading, so neither
+// the storefront nor the bot ever sees those side by side. Measured that way it reported
+// 48 "contradictions", none of which were real.
+//
+// A real contradiction is one PRODUCT SECTION answering one question two ways — a PDP
+// contradicting itself to a single customer.
+const bySection = new Map<string, QA[]>();
 for (const x of allQAs) {
   if (!x.q || !x.a) continue;
-  const k = x.q.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
-  byQ.set(k, [...(byQ.get(k) ?? []), x]);
+  const k = `${x.file}|${x.section}|${x.q.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim()}`;
+  bySection.set(k, [...(bySection.get(k) ?? []), x]);
 }
-for (const [, v] of byQ) {
+for (const [, v] of bySection) {
   const answers = new Set(v.map((x) => x.a.toLowerCase().replace(/\s+/g, " ").trim()));
-  if (v.length > 1 && answers.size > 1) {
-    findings.push({
-      check: "CONTRADICT", sev: answers.size > 2 ? "HIGH" : "MEDIUM",
-      title: `"${v[0].q.slice(0, 80)}" has ${answers.size} different answers`,
-      detail: [...answers].map((a) => `  - ${a.slice(0, 120)}`).join("\n"),
-      where: v.map((x) => `${x.file.split(/[\\/]/).pop()}:${x.line}`).join(", "),
-    });
-  }
+  if (v.length < 2 || answers.size < 2) continue;
+  // "Unassigned / library FAQs" is not a product — it is the orphan bucket. Two answers
+  // in there never appear side by side on any PDP, so it is not a contradiction a
+  // customer can see. Worth noting when deduping the library, not worth an alarm.
+  const isOrphanBucket = /^Unassigned/i.test(v[0].section);
+  findings.push({
+    check: "CONTRADICT",
+    sev: isOrphanBucket ? "LOW" : "HIGH",
+    title: isOrphanBucket
+      ? `orphan bucket holds ${answers.size} answers to "${v[0].q.slice(0, 50)}" (not on any PDP)`
+      : `"${v[0].section.slice(0, 46)}" answers "${v[0].q.slice(0, 46)}" ${answers.size} different ways`,
+    detail: [...answers].map((a) => `  - ${a.slice(0, 120)}`).join("\n"),
+    where: v.map((x) => `${x.file.split(/[\\/]/).pop()}:${x.line}`).join(", "),
+  });
 }
 
 // ------------------------------------------------------------------- report
