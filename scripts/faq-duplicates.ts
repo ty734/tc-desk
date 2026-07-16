@@ -39,11 +39,15 @@ async function gql<T = any>(query: string, variables: any = {}): Promise<T> {
   return d.data;
 }
 
+// TRUE function words only. Do NOT strip interrogatives (what/how/who/when/why) or
+// action verbs (use/take/long/safe) — those ARE the question's meaning. Stripping them
+// made "What is the Gut Reset Protocol?" and "How do I use the Gut Reset Protocol?"
+// both collapse to {gut,reset,protocol} and match at 1.00, which manufactured fake
+// conflicts on every product whose name dominates its short questions.
 const STOP = new Set([
   "a","an","the","is","it","do","does","did","i","in","of","to","for","and","or","my","your","our",
   "this","that","these","those","are","be","been","can","could","will","would","should","with","if",
-  "on","at","by","from","as","how","what","why","when","where","which","who","you","we","they","me",
-  "am","was","were","has","have","had","there","use","using","used","get","got","need","much","many",
+  "on","at","by","from","as","you","we","they","me","am","was","were","has","have","had","there",
 ]);
 
 /** crude but effective stemmer for FAQ-speak: plurals + -ing/-ed */
@@ -68,8 +72,22 @@ export function tokens(s: string): Set<string> {
   );
 }
 
+/**
+ * One-word modifiers that CHANGE the question, not decorate it.
+ * "How do I use it?" (method) vs "How often should I use it?" (frequency) are different
+ * questions with different correct answers — but they differ by a single token out of
+ * five, so plain Jaccard scores them 0.80 and calls them duplicates. That single false
+ * pattern accounted for ALL 11 apparent same-product conflicts in the library.
+ * If one side has a modifier and the other doesn't, they are not the same question.
+ */
+const MODIFIERS = new Set([
+  "often", "long", "much", "many", "frequently", "soon", "old", "first", "before", "after",
+]);
+
 export function jaccard(a: Set<string>, b: Set<string>): number {
   if (!a.size || !b.size) return 0;
+  // A modifier on exactly one side flips the question's meaning.
+  for (const m of MODIFIERS) if (a.has(m) !== b.has(m)) return 0;
   let inter = 0;
   for (const x of a) if (b.has(x)) inter++;
   return inter / (a.size + b.size - inter);
@@ -199,28 +217,72 @@ async function main() {
     return;
   }
 
-  // report mode: duplicate clusters across the whole library
-  const ids = [...nodes.keys()];
+  // ---- report mode ----
+  // Clustering by question text ALONE overstates the problem badly. "What is the
+  // recommended dosage?" has 8 versions because it is asked of 8 DIFFERENT products
+  // (Tooth & Bone, Liquid Vita D, the chewable, Gut Well...). Those SHOULD differ.
+  // A real conflict is: same question, different answers, and BOTH LIVE ON THE SAME
+  // PRODUCT — that is a PDP contradicting itself in front of one customer.
+  const onProduct = new Map<string, Set<string>>(); // faq id -> product titles
+  for (const [title, p] of products) {
+    for (const id of p.ids) {
+      if (!onProduct.has(id)) onProduct.set(id, new Set());
+      onProduct.get(id)!.add(title);
+    }
+  }
+
+  const ids = [...nodes.keys()].filter((i) => nodes.get(i)!.q);
   const toks = new Map(ids.map((i) => [i, tokens(nodes.get(i)!.q)]));
   const seen = new Set<string>();
   const clusters: string[][] = [];
   for (const i of ids) {
-    if (seen.has(i) || !nodes.get(i)!.q) continue;
+    if (seen.has(i)) continue;
     const group = [i];
     for (const j of ids) {
-      if (j === i || seen.has(j) || !nodes.get(j)!.q) continue;
+      if (j === i || seen.has(j)) continue;
       if (jaccard(toks.get(i)!, toks.get(j)!) >= DUP) { group.push(j); seen.add(j); }
     }
     seen.add(i);
     if (group.length > 1) clusters.push(group);
   }
-  clusters.sort((a, b) => b.length - a.length);
-  const divergent = clusters.filter((g) => new Set(g.map((i) => nodes.get(i)!.a.toLowerCase().replace(/\s+/g, " "))).size > 1);
-  console.log(`near-duplicate question clusters: ${clusters.length}`);
-  console.log(`...of which the answers DIVERGE: ${divergent.length}\n`);
-  for (const g of divergent.slice(0, 12)) {
-    console.log(`### "${nodes.get(g[0])!.q.slice(0, 78)}"  (${g.length} versions)`);
-    for (const i of g) console.log(`   ${i}  ${nodes.get(i)!.a.slice(0, 96)}`);
+
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const divergent = clusters.filter((g) => new Set(g.map((i) => norm(nodes.get(i)!.a))).size > 1);
+
+  // The ones that actually hurt: two divergent answers sharing a live product.
+  type Conflict = { product: string; q: string; versions: { id: string; a: string }[] };
+  const conflicts: Conflict[] = [];
+  for (const g of divergent) {
+    const byProduct = new Map<string, string[]>();
+    for (const i of g) {
+      for (const t of onProduct.get(i) ?? []) {
+        byProduct.set(t, [...(byProduct.get(t) ?? []), i]);
+      }
+    }
+    for (const [title, members] of byProduct) {
+      if (members.length < 2) continue;
+      if (new Set(members.map((i) => norm(nodes.get(i)!.a))).size < 2) continue;
+      conflicts.push({
+        product: title,
+        q: nodes.get(members[0])!.q,
+        versions: members.map((i) => ({ id: i, a: nodes.get(i)!.a })),
+      });
+    }
+  }
+
+  console.log(`near-duplicate question clusters:            ${clusters.length}`);
+  console.log(`...with diverging answers:                   ${divergent.length}`);
+  console.log(`...that a SINGLE PRODUCT shows at once:      ${conflicts.length}  <-- the real problem\n`);
+  console.log("A cluster spanning different products is usually legitimate: the same question");
+  console.log("asked of different products SHOULD get different answers. Only a product that");
+  console.log("carries two conflicting answers to one question is contradicting itself.\n");
+
+  conflicts.sort((a, b) => b.versions.length - a.versions.length);
+  for (const c of conflicts) {
+    console.log("=".repeat(74));
+    console.log(`PRODUCT: ${c.product}`);
+    console.log(`Q: ${c.q}`);
+    for (const v of c.versions) console.log(`   ${v.id}  ${v.a.slice(0, 150)}`);
     console.log();
   }
 }
