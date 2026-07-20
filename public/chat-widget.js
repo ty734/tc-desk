@@ -24,6 +24,13 @@
     }
   }
   var BRAND = (script && script.getAttribute("data-brand")) || "living-well";
+  // Per-brand widget chrome (one desk serves multiple storefronts). The bot's
+  // answers are brand-aware server-side; these are the client-side labels.
+  var BRAND_CFG = {
+    "living-well": { name: "Living Well", title: "Living Well Support", refer: "your dentist or doctor" },
+    "longer-together": { name: "Longer Together", title: "Longer Together Support", refer: "your veterinarian" }
+  };
+  var CFG = BRAND_CFG[BRAND] || BRAND_CFG["living-well"];
   var ORIGIN = (function () {
     try { return new URL(script.src).origin; } catch (e) { return "https://desk.livingwellwithdrmichelle.com"; }
   })();
@@ -98,11 +105,11 @@
   var panel = document.createElement("div");
   panel.id = "lw-chat-panel";
   panel.innerHTML =
-    '<div id="lw-chat-head"><span id="lw-chat-avatar"><span id="lw-chat-avatar-letter"></span><span class="lw-presence"></span></span><div><b id="lw-chat-title">Living Well Support</b><span class="lw-sub" id="lw-chat-sub">Ask us anything about our products or your order</span></div><button id="lw-chat-close" type="button" aria-label="Close chat">&times;</button></div>' +
+    '<div id="lw-chat-head"><span id="lw-chat-avatar"><span id="lw-chat-avatar-letter"></span><span class="lw-presence"></span></span><div><b id="lw-chat-title">' + CFG.title + '</b><span class="lw-sub" id="lw-chat-sub">Ask us anything about our products or your order</span></div><button id="lw-chat-close" type="button" aria-label="Close chat">&times;</button></div>' +
     '<div id="lw-chat-status"><span class="lw-dot"></span><span id="lw-chat-status-text"></span></div>' +
     '<div id="lw-chat-msgs"></div>' +
     '<form id="lw-chat-form"><textarea id="lw-chat-input" rows="1" placeholder="Type your question…"></textarea><button id="lw-chat-send" type="submit">Send</button></form>' +
-    '<div id="lw-chat-foot">AI assistant — for health questions, please talk with your dentist or doctor.</div>';
+    '<div id="lw-chat-foot">AI assistant. For health questions, please talk with ' + CFG.refer + '.</div>';
 
   document.body.appendChild(bubble);
   document.body.appendChild(panel);
@@ -211,7 +218,7 @@
 
   function greet() {
     if (history.length === 0) {
-      addMsg("bot", "Hi! I'm the Living Well assistant. I can help with product questions, shipping, returns, or checking on your order. How can I help?");
+      addMsg("bot", "Hi! I'm the " + CFG.name + " assistant. I can help with product questions, shipping, returns, or checking on your order. How can I help?");
     } else {
       history.forEach(function (m) { addMsg(m.role, m.content, m.name); });
       renderedCount = history.length;
