@@ -87,6 +87,97 @@ async function graphPost(
   }
 }
 
+// ---- Read: parent post/media context (the "what are they replying to?" card) ---
+// A social comment ticket stores the parent post/media id as Message.platform-
+// ThreadId, but that id alone is opaque to an agent. These helpers resolve it to
+// a human-usable preview — permalink + caption + thumbnail — via a single Graph
+// GET, so the ticket can show which post/video the comment sits under.
+
+export type PostContext = {
+  permalink: string | null;
+  caption: string | null;
+  thumbnailUrl: string | null;
+  mediaType: string | null;
+};
+export type PostContextResult =
+  | { ok: true; context: PostContext }
+  | { ok: false; error: string; status?: number };
+
+async function graphGet(
+  path: string,
+  token: string,
+  fields: string,
+  client: GraphHttpClient
+): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> {
+  const url = `${GRAPH_BASE}/${path}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`;
+  const res = await client(url, { method: "GET" });
+  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  return { ok: res.ok && !(data && "error" in data), status: res.status, data };
+}
+
+/** Resolve a Facebook post id ("{pageId}_{postId}") to its permalink, message,
+ *  and preview image: GET /{post-id}?fields=permalink_url,message,full_picture. */
+export async function fetchFacebookPost(
+  opts: { postId: string; token: string },
+  client: GraphHttpClient = fetchClient
+): Promise<PostContextResult> {
+  try {
+    const { ok, status, data } = await graphGet(
+      opts.postId,
+      opts.token,
+      "permalink_url,message,full_picture",
+      client
+    );
+    if (!ok || !data) {
+      const err = (data?.error as { message?: string } | undefined)?.message;
+      return { ok: false, status, error: err ?? `Graph API error ${status}` };
+    }
+    return {
+      ok: true,
+      context: {
+        permalink: (data.permalink_url as string) ?? null,
+        caption: (data.message as string) ?? null,
+        thumbnailUrl: (data.full_picture as string) ?? null,
+        mediaType: null,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: `Graph request failed: ${String(err)}` };
+  }
+}
+
+/** Resolve an Instagram media id to its permalink, caption, and thumbnail:
+ *  GET /{media-id}?fields=permalink,caption,media_type,media_url,thumbnail_url.
+ *  Video media expose thumbnail_url; images use media_url. */
+export async function fetchInstagramMedia(
+  opts: { mediaId: string; token: string },
+  client: GraphHttpClient = fetchClient
+): Promise<PostContextResult> {
+  try {
+    const { ok, status, data } = await graphGet(
+      opts.mediaId,
+      opts.token,
+      "permalink,caption,media_type,media_url,thumbnail_url",
+      client
+    );
+    if (!ok || !data) {
+      const err = (data?.error as { message?: string } | undefined)?.message;
+      return { ok: false, status, error: err ?? `Graph API error ${status}` };
+    }
+    return {
+      ok: true,
+      context: {
+        permalink: (data.permalink as string) ?? null,
+        caption: (data.caption as string) ?? null,
+        thumbnailUrl: (data.thumbnail_url as string) ?? (data.media_url as string) ?? null,
+        mediaType: (data.media_type as string) ?? null,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: `Graph request failed: ${String(err)}` };
+  }
+}
+
 // ---- Facebook: comments ---------------------------------------------------------
 
 /** Reply to a Facebook Page comment: POST /{comment-id}/comments (spec §5). */

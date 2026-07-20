@@ -159,6 +159,16 @@ export default function TicketModal({
   const [hiding, setHiding] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [hideError, setHideError] = useState<string | null>(null);
+  // Parent post/video a social comment is replying to (resolved via Graph).
+  // Tagged with ticketId so a stale result never renders under a different
+  // ticket when the modal is reused — avoids a synchronous reset in the effect.
+  const [postContext, setPostContext] = useState<{
+    ticketId: string;
+    permalink: string | null;
+    caption: string | null;
+    thumbnailUrl: string | null;
+    mediaType: string | null;
+  } | null>(null);
   const [canned, setCanned] = useState<{ id: string; title: string; body: string }[] | null>(null);
   const [cannedOpen, setCannedOpen] = useState(false);
   const [shopify, setShopify] = useState<{
@@ -218,6 +228,25 @@ export default function TicketModal({
             if (draft) setReply((prev) => (prev.trim() ? prev : draft));
           }
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket.id, ticket.channel]);
+
+  // Social comments: resolve the parent post/video so the agent can see (and
+  // open) what the customer is replying to. Comment channels only — DMs and
+  // email have no parent post. Failures resolve to null and render nothing.
+  useEffect(() => {
+    if (!["facebook_comment", "instagram_comment"].includes(ticket.channel)) return;
+    let cancelled = false;
+    fetch(`/api/tickets/${ticket.id}/social-post`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.context) setPostContext({ ticketId: ticket.id, ...data.context });
+      })
+      .catch(() => {
+        /* leave null — the card simply doesn't render */
       });
     return () => {
       cancelled = true;
@@ -631,6 +660,45 @@ export default function TicketModal({
             );
           })}
         </div>
+
+        {/* Parent post/video context — what the customer commented on. Social
+            comment tickets only; renders once the Graph lookup resolves. */}
+        {isSocialComment && postContext?.ticketId === ticket.id && (
+          <div className="px-6 pb-4">
+            <h4 className="text-sm font-semibold text-gray-600 mb-2">In reply to</h4>
+            <div className="flex gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              {postContext.thumbnailUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={postContext.thumbnailUrl}
+                  alt=""
+                  className="h-16 w-16 flex-shrink-0 rounded-md object-cover border border-gray-200"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  {platformLabel}
+                  {postContext.mediaType ? ` · ${postContext.mediaType.toLowerCase()}` : " post"}
+                </div>
+                {postContext.caption ? (
+                  <p className="mt-0.5 text-sm text-gray-700 line-clamp-2">{postContext.caption}</p>
+                ) : (
+                  <p className="mt-0.5 text-sm italic text-gray-400">No caption</p>
+                )}
+                {postContext.permalink && (
+                  <a
+                    href={postContext.permalink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-block text-sm font-medium text-violet-700 hover:text-violet-900 hover:underline"
+                  >
+                    View original on {platformLabel} ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Customer conversation — the email thread. Reply composer arrives in
             Phase C as a clearly separate, non-amber input. */}
