@@ -327,6 +327,7 @@ export default function BoardView({
   const [showInvite, setShowInvite] = useState(false);
   const [showFields, setShowFields] = useState(false);
   const [assigneeFilter, setAssigneeFilter] = useState<"all" | "mine" | "unassigned">("all");
+  const [priorityFilter, setPriorityFilter] = useState(false);
   const [search, setSearch] = useState("");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -422,15 +423,38 @@ export default function BoardView({
   // Ticket queues: filter every column by assignee. "Assigned to me" and
   // "Unassigned" run over the assigneeId data that already exists; the Closed
   // column already serves as "Recently Closed".
+  // Option ids that mean Priority = High. Keyed off the "Priority" custom field
+  // by name (case-insensitive) so it works on whichever board defines one, and
+  // matches every "High" option regardless of color. Empty set → the High
+  // Priority toggle hides everything, which is the honest signal that this board
+  // has no High priority option configured.
+  const highPriorityOptionIds = useMemo(() => {
+    const field = fields.find((f) => f.name.trim().toLowerCase() === "priority");
+    return new Set(
+      (field?.options ?? [])
+        .filter((o) => o.label.trim().toLowerCase() === "high")
+        .map((o) => o.id)
+    );
+  }, [fields]);
+
   const filteredColumns = useMemo(() => {
-    if (assigneeFilter === "all") return columns;
+    if (assigneeFilter === "all" && !priorityFilter) return columns;
     return columns.map((c) => ({
       ...c,
-      tickets: c.tickets.filter((t) =>
-        assigneeFilter === "mine" ? t.assigneeId === currentUserId : !t.assigneeId
-      ),
+      tickets: c.tickets.filter((t) => {
+        const assigneeOk =
+          assigneeFilter === "all"
+            ? true
+            : assigneeFilter === "mine"
+            ? t.assigneeId === currentUserId
+            : !t.assigneeId;
+        const priorityOk =
+          !priorityFilter ||
+          t.fieldValues.some((fv) => fv.optionId && highPriorityOptionIds.has(fv.optionId));
+        return assigneeOk && priorityOk;
+      }),
     }));
-  }, [columns, assigneeFilter, currentUserId]);
+  }, [columns, assigneeFilter, priorityFilter, currentUserId, highPriorityOptionIds]);
 
   // Ticket search: match by number, customer name/email, or subject across
   // every loaded ticket (all columns, open and closed). Read-only — clicking a
@@ -849,6 +873,20 @@ export default function BoardView({
             </button>
           ))}
         </div>
+        {/* High Priority filter — narrows the board to tickets chipped High on
+            the Priority field. Stacks with the assignee queue above. */}
+        <button
+          onClick={() => setPriorityFilter((v) => !v)}
+          aria-pressed={priorityFilter}
+          className={`rounded-lg border px-3 py-1 text-sm font-medium transition-colors ${
+            priorityFilter
+              ? "border-red-300 bg-red-600 text-white"
+              : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+          }`}
+          title="Show only High Priority tickets"
+        >
+          High Priority
+        </button>
         {isOwner && (
           <button
             onClick={() => setShowFields(true)}
