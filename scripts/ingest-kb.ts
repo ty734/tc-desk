@@ -70,9 +70,14 @@ async function main() {
       const md = readFileSync(file, "utf8");
       const source = basename(file);
       for (const c of chunk(md)) {
-        // Tag Dr. Michelle's dental-practice content so the storefront bot can't
-        // retrieve it. See src/lib/clinical.ts for why this is precision-tuned.
-        rows.push({ source, ...c, scope: classifyScope(c.title, c.content) });
+        // Clinical scoping is Living Well ONLY — that KB merges Dr. Michelle's
+        // dental-PRACTICE FAQ (root canals, implants, ozone...) which the
+        // storefront bot must not speak. Other brands (e.g. Longer Together, a
+        // pet dental-supplement store) have no practice half, and their normal
+        // product vocabulary ("gum health", "plaque", "extraction") would be
+        // wrongly hidden by the classifier. Everything non-LW is public.
+        const scope = brand === "living-well" ? classifyScope(c.title, c.content) : "public";
+        rows.push({ source, ...c, scope });
       }
     }
   }
