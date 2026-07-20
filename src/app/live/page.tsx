@@ -42,8 +42,19 @@ function ding() {
   }
 }
 
+function titleCase(slug: string) {
+  return slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 export default function LiveChatPage() {
   const router = useRouter();
+  // Brand scope from the URL (?brand=…). One shared check-in; only the queue
+  // is filtered. Read after mount (avoids an SSR/client hydration mismatch on
+  // the title); the poll re-scopes when it resolves.
+  const [brand, setBrand] = useState<string | null>(null);
+  useEffect(() => {
+    setBrand(new URLSearchParams(window.location.search).get("brand"));
+  }, []);
   const [checkedIn, setCheckedIn] = useState(false);
   const [onlineAgents, setOnlineAgents] = useState<{ id: string; name: string }[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
@@ -60,7 +71,7 @@ export default function LiveChatPage() {
   const msgsRef = useRef<HTMLDivElement>(null);
 
   const refreshSessions = useCallback(async () => {
-    const res = await fetch("/api/live/sessions");
+    const res = await fetch(`/api/live/sessions${brand ? `?brand=${encodeURIComponent(brand)}` : ""}`);
     if (res.status === 401) {
       router.push("/login");
       return;
@@ -82,7 +93,7 @@ export default function LiveChatPage() {
       }
     }
     knownWaiting.current = waitingNow;
-  }, [router]);
+  }, [router, brand]);
 
   const refreshOpenChat = useCallback(async () => {
     if (!openId) return;
@@ -220,7 +231,7 @@ export default function LiveChatPage() {
         <Link href="/" className="text-gray-400 hover:text-gray-700 font-medium text-sm">
           ← Desk
         </Link>
-        <h1 className="text-xl font-bold">Live Chat</h1>
+        <h1 className="text-xl font-bold">{brand ? `${titleCase(brand)} Live Chat` : "Live Chat"}</h1>
         <div className="flex items-center gap-1.5 text-sm text-gray-500">
           {onlineAgents.map((a) => (
             <Avatar key={a.id} name={a.name} size={24} />

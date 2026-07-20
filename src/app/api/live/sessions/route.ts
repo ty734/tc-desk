@@ -20,9 +20,14 @@ export async function POST(req: Request) {
 
 // The Live Chat screen's poll: waiting + active sessions, presence roster,
 // and (side effect) the caller's presence heartbeat while checked in.
-export async function GET() {
+export async function GET(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not logged in." }, { status: 401 });
+
+  // Optional per-brand scope. Presence/check-in stays global (one check-in
+  // serves every brand); only the queue is filtered. No brand = every brand
+  // (the global watcher relies on this for cross-brand alerts).
+  const brand = new URL(req.url).searchParams.get("brand");
 
   await db.agentPresence.updateMany({
     where: { userId: user.id },
@@ -33,6 +38,7 @@ export async function GET() {
   const [sessions, agents] = await Promise.all([
     db.chatSession.findMany({
       where: {
+        ...(brand ? { inbox: { brand } } : {}),
         OR: [
           { status: { in: ["waiting", "live"] } },
           // Recently ended chats stay visible for the rest of the day.

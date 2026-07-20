@@ -15,7 +15,7 @@ export default async function Home() {
     redirect(userCount === 0 ? "/register" : "/login");
   }
 
-  const [memberships, checkedIn, socialInboxes] = await Promise.all([
+  const [memberships, checkedIn, inboxes, waitingCounts] = await Promise.all([
     db.boardMember.findMany({
       where: { userId: user.id },
       include: {
@@ -32,13 +32,23 @@ export default async function Home() {
     db.agentPresence.count({
       where: { lastSeenAt: { gte: new Date(Date.now() - PRESENCE_TTL_MS) } },
     }),
-    // Which boards are dedicated Social boards (FB/IG tickets)?
     db.inbox.findMany({
-      where: { socialBoardId: { not: null } },
-      select: { socialBoardId: true },
+      select: { id: true, brand: true, name: true, boardId: true, socialBoardId: true },
+    }),
+    // Waiting/live website chats per inbox — powers the per-brand Live Chat cards.
+    db.chatSession.groupBy({
+      by: ["inboxId"],
+      where: { status: { in: ["waiting", "live"] } },
+      _count: { _all: true },
     }),
   ]);
-  const socialBoardIds = new Set(socialInboxes.map((i) => i.socialBoardId));
+  const socialBoardIds = new Set(inboxes.map((i) => i.socialBoardId).filter(Boolean));
+  const memberBoardIds = new Set(memberships.map((m) => m.boardId));
+  const waitingByInbox = new Map(waitingCounts.map((w) => [w.inboxId, w._count._all]));
+  // One Live Chat card per brand the agent handles (matched by the inbox's primary board).
+  const liveInboxes = inboxes
+    .filter((i) => memberBoardIds.has(i.boardId))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const boards = memberships
     .map((m) => m.board)
     .filter((b) => !b.archived)
@@ -66,39 +76,47 @@ export default async function Home() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Live Chat */}
-          <Link
-            href="/live"
-            className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-violet-400 hover:-translate-y-0.5 transition-all p-8 group"
-          >
-            <div className="w-16 h-16 rounded-2xl bg-violet-100 flex items-center justify-center mb-5">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M21 12c0 4.418-4.03 8-9 8-1.05 0-2.06-.16-3-.455L4 21l1.5-3.5C4.56 16.13 4 14.63 4 13c0-4.418 4.03-8 9-8s8 2.582 8 7z"
-                  fill="#6E9277"
-                />
-                <circle cx="9.5" cy="12.5" r="1.1" fill="#fff" />
-                <circle cx="13" cy="12.5" r="1.1" fill="#fff" />
-                <circle cx="16.5" cy="12.5" r="1.1" fill="#fff" />
-              </svg>
-            </div>
-            <div className="text-2xl font-bold group-hover:text-violet-700 transition-colors">
-              Live Chat
-            </div>
-            <div className="text-base text-gray-500 mt-1.5">
-              Check in to take website chats live
-            </div>
-            <div className="mt-4 flex items-center gap-2 text-sm font-medium">
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${checkedIn > 0 ? "bg-green-500" : "bg-gray-300"}`}
-              />
-              <span className={checkedIn > 0 ? "text-violet-800" : "text-gray-400"}>
-                {checkedIn > 0
-                  ? `${checkedIn} teammate${checkedIn === 1 ? "" : "s"} checked in`
-                  : "No one checked in right now"}
-              </span>
-            </div>
-          </Link>
+          {/* Live Chat — one card per brand. Shared check-in, separate queues. */}
+          {liveInboxes.map((inbox) => {
+            const brandName = inbox.name.replace(/\s*support\s*$/i, "").trim();
+            const waiting = waitingByInbox.get(inbox.id) ?? 0;
+            return (
+              <Link
+                key={inbox.id}
+                href={`/live?brand=${inbox.brand}`}
+                className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-violet-400 hover:-translate-y-0.5 transition-all p-8 group"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-violet-100 flex items-center justify-center mb-5">
+                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M21 12c0 4.418-4.03 8-9 8-1.05 0-2.06-.16-3-.455L4 21l1.5-3.5C4.56 16.13 4 14.63 4 13c0-4.418 4.03-8 9-8s8 2.582 8 7z"
+                      fill="#6E9277"
+                    />
+                    <circle cx="9.5" cy="12.5" r="1.1" fill="#fff" />
+                    <circle cx="13" cy="12.5" r="1.1" fill="#fff" />
+                    <circle cx="16.5" cy="12.5" r="1.1" fill="#fff" />
+                  </svg>
+                </div>
+                <div className="text-2xl font-bold group-hover:text-violet-700 transition-colors">
+                  {brandName} Live Chat
+                </div>
+                <div className="text-base text-gray-500 mt-1.5">
+                  Check in to take website chats live
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-sm font-medium">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${checkedIn > 0 ? "bg-green-500" : "bg-gray-300"}`}
+                  />
+                  <span className={checkedIn > 0 ? "text-violet-800" : "text-gray-400"}>
+                    {checkedIn > 0
+                      ? `${checkedIn} teammate${checkedIn === 1 ? "" : "s"} checked in`
+                      : "No one checked in right now"}
+                  </span>
+                  {waiting > 0 && <span className="text-amber-700">· {waiting} waiting</span>}
+                </div>
+              </Link>
+            );
+          })}
 
           {/* Support boards */}
           {boards.map((board) => (
