@@ -768,17 +768,27 @@ export default function TicketModal({
                   <MessageBody m={m} />
                   {m.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {m.attachments.map((a) => (
-                        <a
-                          key={a.id}
-                          href={a.blobUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded px-2 py-1 hover:bg-violet-100"
-                        >
-                          📎 {a.filename}
-                        </a>
-                      ))}
+                      {m.attachments.map((a) =>
+                        a.contentType.startsWith("audio/") ? (
+                          <audio
+                            key={a.id}
+                            controls
+                            preload="none"
+                            src={a.blobUrl}
+                            className="w-full mt-1"
+                          />
+                        ) : (
+                          <a
+                            key={a.id}
+                            href={a.blobUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded px-2 py-1 hover:bg-violet-100"
+                          >
+                            📎 {a.filename}
+                          </a>
+                        ),
+                      )}
                     </div>
                   )}
                 </div>

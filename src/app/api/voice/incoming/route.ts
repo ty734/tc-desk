@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readTwilioParams, validateTwilioSignature, softphoneConfigured } from "@/lib/twilio";
 import { inboxByNumber, routeInboundCall } from "@/lib/voice-ingest";
-import { onlineAgents } from "@/lib/livechat";
+import { onlineVoiceAgents } from "@/lib/voice-presence";
 import { twiml, voicemailPrompt, dialAgents } from "@/lib/voice-twiml";
 
 // Twilio Voice webhook — the "A call comes in" URL on each brand's number.
@@ -47,13 +47,13 @@ export async function POST(req: Request) {
   if (softphoneConfigured()) {
     let agentIds: string[] = [];
     try {
-      const agents = await onlineAgents();
+      const agents = await onlineVoiceAgents();
       agentIds = agents.map((a) => a.userId);
     } catch (err) {
       console.error("[voice/incoming] presence lookup failed", err);
     }
     if (agentIds.length > 0) {
-      return twiml(dialAgents(agentIds));
+      return twiml(dialAgents(agentIds, inbox.name));
     }
   }
   return twiml(voicemailPrompt(inbox.name));

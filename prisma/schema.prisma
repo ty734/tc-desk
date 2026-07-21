@@ -31,6 +31,7 @@ model User {
   invitesSent     Invite[]
   passwordResets  PasswordReset[]
   presence        AgentPresence?
+  voicePresence   VoicePresence?
   liveChats       ChatSession[]
 }
 
@@ -332,4 +333,14 @@ model AgentPresence {
   checkedInAt DateTime @default(now())
   lastSeenAt  DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// An agent available to take phone CALLS — separate from AgentPresence (chat)
+// so "available for calls" is independent of the live-chat queue. Presence =
+// lastSeenAt within ~40s; the softphone heartbeats while the agent is available.
+model VoicePresence {
+  userId     String   @id
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

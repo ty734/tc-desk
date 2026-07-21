@@ -18,6 +18,7 @@ const CHANNEL_STYLES: Record<string, { label: string; bg: string; text: string }
   email: { label: "Email", bg: "#bfdbfe", text: "#1e40af" },
   amazon: { label: "Amazon", bg: "#fed7aa", text: "#9a3412" },
   chat: { label: "Chat", bg: "#bbf7d0", text: "#166534" },
+  voice: { label: "Phone", bg: "#c7d2fe", text: "#3730a3" },
   ig: { label: "IG", bg: "#fbcfe8", text: "#9d174d" },
   fb: { label: "FB", bg: "#e9d5ff", text: "#6b21a8" },
   // Social engagement channels (Meta Phase 1) — comment vs DM stay visually

@@ -29,6 +29,7 @@ export function voicemailPrompt(inboxName: string): string {
   return (
     `<Say voice="alice">${xmlEscape(greeting)}</Say>` +
     `<Record maxLength="120" playBeep="true" trim="trim-silence" ` +
+    `transcribe="true" transcribeCallback="/api/voice/transcription" ` +
     `recordingStatusCallback="/api/voice/recording" recordingStatusCallbackEvent="completed" />` +
     `<Say voice="alice">Thank you. Goodbye.</Say><Hangup/>`
   );
@@ -40,8 +41,17 @@ export function voicemailPrompt(inboxName: string): string {
  * which drops to voicemail if nobody picked up. answerOnBridge keeps the caller
  * hearing ringback (not dead air) until an agent connects.
  */
-export function dialAgents(userIds: string[]): string {
-  const clients = userIds.map((id) => `<Client>${xmlEscape(id)}</Client>`).join("");
+export function dialAgents(userIds: string[], brandName: string): string {
+  // Nested <Client> form so we can pass the brand name through to the softphone,
+  // which shows "<brand> · <caller>" on the incoming banner (multi-brand aware).
+  const bn = xmlEscape(brandName);
+  const clients = userIds
+    .map(
+      (id) =>
+        `<Client><Identity>${xmlEscape(id)}</Identity>` +
+        `<Parameter name="brandName" value="${bn}"/></Client>`,
+    )
+    .join("");
   return (
     `<Dial timeout="25" answerOnBridge="true" ` +
     `action="/api/voice/dial-status" method="POST">${clients}</Dial>`

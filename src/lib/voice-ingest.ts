@@ -177,6 +177,23 @@ export async function attachVoicemailRecording(opts: {
   return { ok: true };
 }
 
+/**
+ * Append a voicemail transcript to its Message (matched by CallSid). Idempotent:
+ * re-strips any prior transcript before re-appending, so callback retries are safe.
+ */
+export async function attachTranscript(callSid: string, text: string): Promise<void> {
+  const message = await db.message.findFirst({
+    where: { providerMessageId: callSid },
+    select: { id: true, bodyText: true },
+  });
+  if (!message) return;
+  const base = (message.bodyText ?? "📞 Voicemail").split("\n\nTranscript:")[0].trimEnd();
+  await db.message.update({
+    where: { id: message.id },
+    data: { bodyText: `${base}\n\nTranscript: ${text}` },
+  });
+}
+
 // ---- Outbound (Phase 3) ------------------------------------------------------
 
 function inboxWithBoardById(id: string) {

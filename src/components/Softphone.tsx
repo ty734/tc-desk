@@ -51,6 +51,7 @@ export default function Softphone() {
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [caller, setCaller] = useState("");
+  const [brand, setBrand] = useState("");
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const [dialInput, setDialInput] = useState("");
@@ -118,6 +119,7 @@ export default function Softphone() {
       device.on("incoming", (call: TwCall) => {
         incomingRef.current = call;
         setCaller(prettyFrom(call.parameters?.From));
+        setBrand(call.customParameters?.get("brandName") ?? "");
         setPhase("incoming");
         startRing();
         const clear = () => {
@@ -147,21 +149,34 @@ export default function Softphone() {
     };
   }, [startRing, stopRing, stopCallTimer]);
 
-  // Reflect current check-in state — availability is what makes calls ring us
-  // (the inbound webhook only dials checked-in agents).
+  // Reflect current availability, then heartbeat it while available. The inbound
+  // webhook rings only agents with a fresh VoicePresence heartbeat — this is the
+  // phone's own presence, independent of the live-chat check-in.
   useEffect(() => {
-    fetch("/api/live/sessions")
+    fetch("/api/voice/presence")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setAvailable(!!d.checkedIn))
+      .then((d) => d && setAvailable(!!d.available))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!available) return;
+    const beat = () =>
+      fetch("/api/voice/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on: true }),
+      }).catch(() => {});
+    const id = window.setInterval(beat, 20_000);
+    return () => clearInterval(id);
+  }, [available]);
 
   async function toggleAvailable() {
     const next = !available;
     setBusy(true);
     setAvailable(next);
     try {
-      await fetch("/api/live/checkin", {
+      await fetch("/api/voice/presence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ on: next }),
@@ -277,7 +292,7 @@ export default function Softphone() {
       {phase === "incoming" ? (
         <div className="p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-            Incoming call
+            Incoming call{brand ? ` · ${brand}` : ""}
           </div>
           <div className="mt-1 text-base font-semibold">{caller}</div>
           <div className="mt-3 flex gap-2">
