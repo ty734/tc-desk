@@ -288,7 +288,7 @@ export async function POST(req: Request) {
         fromEmail,
         subject: p.Subject ?? "",
         bodyText: message.bodyText ?? "",
-      });
+      }, inbox.brand);
       if (decision.respond && decision.reply) {
         const sentId = await sendAutoReply({
           inbox,

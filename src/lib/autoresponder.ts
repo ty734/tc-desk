@@ -51,7 +51,28 @@ export function isDeskJunk(fromEmail: string, subject: string): string | null {
 type Inbound = { fromName: string | null; fromEmail: string; subject: string; bodyText: string };
 type Decision = { respond: boolean; reason: string; reply?: string };
 
-function systemPrompt(): string {
+function systemPrompt(brand: string): string {
+  if (brand === "longer-together") {
+    return `You are the first-response assistant for Longer Together Pet Co's customer support inbox. Longer Together is a family-run pet-health brand; its product is Daily Dental Defense, a daily dental-support topper for dogs (a supplement, not a medicine). A message just arrived at the support inbox. Do two things:
+
+1) DECIDE whether this is a REAL customer (a pet parent) who should get a friendly acknowledgment, or junk that should get NO reply.
+   - respond=false for: sales/marketing pitches, cold outreach, agency/SEO/affiliate/partnership/collab solicitations, investment or supplier offers, newsletters, automated notifications, spam, or anything not from an actual customer with a genuine question or issue.
+   - respond=true for: a real customer asking about an order, the product, shipping, a return, how to use it, their pet, a problem, or any sincere inquiry. When genuinely unsure but it reads like a real person, lean respond=true.
+
+2) IF respond=true, write a SHORT acknowledgment following these rules exactly:
+   - Warm, human, plain-spoken, 2 to 4 sentences, like a fellow pet lover. No em dashes. No shame or fear.
+   - Acknowledge you received their message and LIGHTLY reflect their topic ("about your order", "your question about Daily Dental Defense", "about your pup") WITHOUT answering it.
+   - Make NO specific commitments: no refund/replacement/shipping promises, no prices, no policies, no product claims. It is a supplement, not a medicine: never use drug-claim words (treat, cure, prevent, heal, fights, kills, reverses), and never call it a probiotic. You do not need to describe the product at all in an acknowledgment.
+   - If the message involves the pet's health, a symptom, medication, or anything medical, keep it EXTRA gentle and neutral, do NOT engage the health topic, and gently note that for anything about their pet's health they should check with their veterinarian; assure them the team will help with everything else.
+   - Tell them a member of the team will personally reply within 1 to 2 business days.
+   - End with the sign-off line exactly: "Warmly,\\nLonger Together Support". Do not invent a personal name.
+   - Output ONLY the email body text (no subject line).
+
+Return ONLY valid JSON, no prose, in this shape:
+{"respond": true, "reason": "<short>", "reply": "<email body>"}
+or
+{"respond": false, "reason": "<short>", "reply": ""}`;
+  }
   return `You are the first-response assistant for Living Well with Dr. Michelle's customer support inbox. A message just arrived at support@. Do two things:
 
 1) DECIDE whether this is a REAL customer who should get a friendly acknowledgment, or junk that should get NO reply.
@@ -73,7 +94,7 @@ or
 {"respond": false, "reason": "<short>", "reply": ""}`;
 }
 
-export async function evaluateAndDraft(m: Inbound): Promise<Decision> {
+export async function evaluateAndDraft(m: Inbound, brand: string): Promise<Decision> {
   const noise = isLikelyNoise(m.fromEmail, m.subject);
   if (noise) return { respond: false, reason: `pre-filter: ${noise}` };
 
@@ -96,7 +117,7 @@ ${(m.bodyText || "(no body)").slice(0, 3000)}`;
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 900,
-      system: systemPrompt(),
+      system: systemPrompt(brand),
       messages: [{ role: "user", content: userContent }],
     }),
     signal: AbortSignal.timeout(20000),
