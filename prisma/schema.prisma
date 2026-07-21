@@ -84,6 +84,10 @@ model Inbox {
   metaIgId         String? @unique // Instagram professional-account id linked to the Page
   metaPageTokenRef String? // env-ref ("env:VAR") for the Page access token — NEVER the raw token
   autoSendMode     String  @default("off") // off | high_confidence | all — social AI auto-send dial
+  // --- Voice (Twilio) — inbound/outbound phone channel ---
+  // One Twilio account serves both brands; inbound calls route to this inbox by
+  // the dialed (To) number. Credentials live in env, never the DB.
+  twilioNumber     String? @unique // E.164, e.g. +18015551234
   // Dedicated board for FB/IG tickets. Nullable: while unset, social tickets
   // fall back to the primary board (pre-seed behavior). Tickets keep
   // inboxId = this inbox either way, so replies/token/KB/threading are untouched.
@@ -138,11 +142,12 @@ model Ticket {
   columnId        String // = status column
   subject         String
   position        Float              @default(0)
-  channel         String             @default("email") // email | amazon | chat | facebook_comment | facebook_dm | instagram_comment | instagram_dm
+  channel         String             @default("email") // email | amazon | chat | voice | facebook_comment | facebook_dm | instagram_comment | instagram_dm
   status          String             @default("new") // mirror of column for querying: new|open|pending|solved|closed
   customerId      String?
   customerEmail   String?
   customerName    String?
+  customerPhone   String? // caller ID for the voice channel (E.164)
   amazonRelayAddr String? // per-thread reply address for the Amazon channel
   replyToken      String             @unique @default(cuid()) // tokenized Reply-To for bulletproof matching
   assigneeId      String?
@@ -164,6 +169,7 @@ model Ticket {
   @@index([inboxId])
   @@index([status])
   @@index([customerEmail])
+  @@index([customerPhone])
 }
 
 // The customer-visible conversation. Every Message is (or will be) an email —
@@ -205,10 +211,13 @@ model Message {
 model Customer {
   id                String   @id @default(cuid())
   email             String   @unique
+  phone             String? // caller ID for voice; callers frequently have no email
   name              String?
   shopifyCustomerId String?
   createdAt         DateTime @default(now())
   tickets           Ticket[]
+
+  @@index([phone])
 }
 
 model Attachment {

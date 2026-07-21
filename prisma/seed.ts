@@ -15,6 +15,7 @@ const TAG_FIELDS: { name: string; options: { label: string; color: string }[] }[
       { label: "Email", color: "blue" },
       { label: "Amazon", color: "orange" },
       { label: "Chat", color: "green" },
+      { label: "Phone", color: "purple" },
     ],
   },
   {
