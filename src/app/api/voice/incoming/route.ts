@@ -1,32 +1,18 @@
 import { NextResponse } from "next/server";
-import { readTwilioParams, validateTwilioSignature } from "@/lib/twilio";
+import { readTwilioParams, validateTwilioSignature, softphoneConfigured } from "@/lib/twilio";
 import { inboxByNumber, routeInboundCall } from "@/lib/voice-ingest";
+import { onlineAgents } from "@/lib/livechat";
+import { twiml, voicemailPrompt, dialAgents } from "@/lib/voice-twiml";
 
-// Twilio Voice webhook — set as the "A CALL COMES IN" URL on each brand's
-// number (Phase 1). Authenticated by X-Twilio-Signature, brand-routed by the
-// dialed (To) number. Phase 1 is voicemail-only: greet, record, hang up; the
-// recording callback (/api/voice/recording) attaches the audio to the ticket.
-// Phase 2 slots a <Dial><Client> to online agents ABOVE the <Record>.
+// Twilio Voice webhook — the "A call comes in" URL on each brand's number.
+// Authenticated by X-Twilio-Signature, brand-routed by the dialed (To) number.
+//
+// Phase 2: if any agent is checked in, ring their browser softphones; if nobody
+// answers within the dial timeout, /api/voice/dial-status drops the caller into
+// voicemail. If no agent is checked in at all, go straight to voicemail. Either
+// way the call is logged as a ticket first (routeInboundCall).
 
 export const maxDuration = 60;
-
-const ESCAPE: Record<string, string> = {
-  "<": "&lt;",
-  ">": "&gt;",
-  "&": "&amp;",
-  "'": "&apos;",
-  '"': "&quot;",
-};
-function xmlEscape(s: string): string {
-  return s.replace(/[<>&'"]/g, (c) => ESCAPE[c]);
-}
-
-function twiml(body: string): Response {
-  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`, {
-    status: 200,
-    headers: { "Content-Type": "text/xml" },
-  });
-}
 
 export async function POST(req: Request) {
   const params = await readTwilioParams(req);
@@ -43,30 +29,32 @@ export async function POST(req: Request) {
 
   const inbox = await inboxByNumber(to);
   if (!inbox) {
-    // Number not yet mapped to a brand (run scripts/setup-voice-brand.ts).
     return twiml(
       `<Say voice="alice">Thanks for calling. This line is not yet in service. Goodbye.</Say><Hangup/>`,
     );
   }
 
-  // Log the call as a ticket now, while we have From/To. If this throws we still
-  // let the caller leave a voicemail — we just may miss the ticket for this call.
+  // Log the call as a ticket now, while we have From/To.
   try {
     await routeInboundCall(inbox, from, callSid);
   } catch (err) {
     console.error("[voice/incoming] routing failed", err);
   }
 
-  const greeting =
-    `Thank you for calling ${inbox.name}. ` +
-    `No one is available to take your call right now. ` +
-    `Please leave a message after the tone, and we'll get back to you as soon as possible.`;
-
-  return twiml(
-    `<Say voice="alice">${xmlEscape(greeting)}</Say>` +
-      `<Record maxLength="120" playBeep="true" trim="trim-silence" ` +
-      `recordingStatusCallback="/api/voice/recording" ` +
-      `recordingStatusCallbackEvent="completed" />` +
-      `<Say voice="alice">Thank you. Goodbye.</Say><Hangup/>`,
-  );
+  // Ring every online agent's browser; fall through to voicemail if none answer.
+  // Only when the softphone is configured — otherwise no browser can register,
+  // so dialing would just ring into the void before voicemail (Phase-1 behavior).
+  if (softphoneConfigured()) {
+    let agentIds: string[] = [];
+    try {
+      const agents = await onlineAgents();
+      agentIds = agents.map((a) => a.userId);
+    } catch (err) {
+      console.error("[voice/incoming] presence lookup failed", err);
+    }
+    if (agentIds.length > 0) {
+      return twiml(dialAgents(agentIds));
+    }
+  }
+  return twiml(voicemailPrompt(inbox.name));
 }

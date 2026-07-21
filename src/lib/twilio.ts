@@ -19,6 +19,46 @@ export function twilioAccountSid(): string | undefined {
 }
 
 /**
+ * True once the softphone env is in place (API Key + TwiML App). Until then the
+ * inbound webhook must NOT ring agents (no browser can register), so it falls
+ * back to Phase-1 voicemail. Lets Phase 2 deploy safely before the env is set.
+ */
+export function softphoneConfigured(): boolean {
+  return !!(
+    process.env.TWILIO_API_KEY_SID &&
+    process.env.TWILIO_API_KEY_SECRET &&
+    process.env.TWILIO_TWIML_APP_SID
+  );
+}
+
+/**
+ * Mint a Twilio Voice access token for a browser softphone (Phase 2). Identity
+ * is the agent's user id, so the inbound webhook can <Dial><Client>{id}</Client>
+ * to reach them. Needs an API Key (not the Auth Token) to sign, plus the TwiML
+ * App SID that governs outbound calls (Phase 3). Throws if unconfigured.
+ */
+export function mintVoiceToken(identity: string, ttlSeconds = 3600): string {
+  const accountSid = twilioAccountSid();
+  const apiKeySid = process.env.TWILIO_API_KEY_SID || undefined;
+  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET || undefined;
+  const appSid = process.env.TWILIO_TWIML_APP_SID || undefined;
+  if (!accountSid || !apiKeySid || !apiKeySecret) {
+    throw new Error("Twilio voice token env not configured (need ACCOUNT_SID, API_KEY_SID, API_KEY_SECRET)");
+  }
+  const AccessToken = twilio.jwt.AccessToken;
+  const VoiceGrant = AccessToken.VoiceGrant;
+  const token = new AccessToken(accountSid, apiKeySid, apiKeySecret, { identity, ttl: ttlSeconds });
+  token.addGrant(
+    new VoiceGrant({
+      // outgoingApplicationSid enables outbound (Phase 3); harmless if unset now.
+      outgoingApplicationSid: appSid,
+      incomingAllow: true, // let the inbound <Dial><Client> reach this identity
+    }),
+  );
+  return token.toJwt();
+}
+
+/**
  * The exact public URL Twilio called, rebuilt from the proxy headers. Twilio's
  * signature covers that URL verbatim, so we must reflect what the edge received
  * (Vercel and ngrok both front the app) rather than trust req.url's host.

@@ -3,6 +3,7 @@ import "./globals.css";
 import { getCurrentUser } from "@/lib/auth";
 import AskPanel from "@/components/AskPanel";
 import LiveChatWatcher from "@/components/LiveChatWatcher";
+import Softphone from "@/components/Softphone";
 
 export const metadata: Metadata = {
   title: "Living Well Desk",
@@ -31,6 +32,7 @@ export default async function RootLayout({
         {children}
         {user && <AskPanel />}
         {user && <LiveChatWatcher />}
+        {user && <Softphone />}
       </body>
     </html>
   );
