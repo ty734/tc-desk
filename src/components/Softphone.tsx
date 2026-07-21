@@ -273,7 +273,7 @@ export default function Softphone() {
   if (phase === "off") return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-72 rounded-xl border border-black/10 bg-white text-sm shadow-lg">
+    <div className="fixed bottom-4 left-4 z-50 w-72 rounded-xl border border-black/10 bg-white text-sm shadow-lg">
       {phase === "incoming" ? (
         <div className="p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
