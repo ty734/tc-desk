@@ -176,3 +176,163 @@ export async function attachVoicemailRecording(opts: {
   await db.ticket.update({ where: { id: message.ticketId }, data: { lastMessageAt: new Date() } });
   return { ok: true };
 }
+
+// ---- Outbound (Phase 3) ------------------------------------------------------
+
+function inboxWithBoardById(id: string) {
+  return db.inbox.findUnique({
+    where: { id },
+    include: { board: { include: { columns: true, fields: { include: { options: true } } } } },
+  });
+}
+
+/**
+ * The caller-ID number an outbound call should show, resolved by ticket → brand
+ * → any configured voice number. Cheap (no board) — used to build the <Dial>.
+ */
+export async function resolveOutboundCallerId(opts: {
+  ticketId?: string;
+  brand?: string;
+}): Promise<string | null> {
+  if (opts.ticketId) {
+    const t = await db.ticket.findUnique({
+      where: { id: opts.ticketId },
+      select: { inbox: { select: { twilioNumber: true } } },
+    });
+    if (t?.inbox?.twilioNumber) return t.inbox.twilioNumber;
+  }
+  if (opts.brand) {
+    const inbox = await db.inbox.findUnique({
+      where: { brand: opts.brand },
+      select: { twilioNumber: true },
+    });
+    if (inbox?.twilioNumber) return inbox.twilioNumber;
+  }
+  const any = await db.inbox.findFirst({
+    where: { twilioNumber: { not: null } },
+    select: { twilioNumber: true },
+  });
+  return any?.twilioNumber ?? null;
+}
+
+/**
+ * Log an agent-placed outbound call as an outbound Message — on the ticket it
+ * was launched from, else threading/creating one by the dialed number so every
+ * call lands on the board. Best-effort (the route must not block the call on
+ * it). Idempotent per CallSid.
+ */
+export async function logOutboundCall(opts: {
+  to: string;
+  callSid: string;
+  agentUserId: string | null;
+  ticketId?: string;
+  brand?: string;
+}): Promise<void> {
+  const dupe = await db.message.findFirst({
+    where: { providerMessageId: opts.callSid },
+    select: { id: true },
+  });
+  if (dupe) return;
+
+  let inbox: VoiceInbox | null = null;
+  let ticketId = opts.ticketId ?? null;
+
+  if (ticketId) {
+    const t = await db.ticket.findUnique({ where: { id: ticketId }, select: { inboxId: true } });
+    if (t) inbox = await inboxWithBoardById(t.inboxId);
+    else ticketId = null;
+  }
+  if (!inbox && opts.brand) {
+    inbox = await db.inbox.findUnique({
+      where: { brand: opts.brand },
+      include: { board: { include: { columns: true, fields: { include: { options: true } } } } },
+    });
+  }
+  if (!inbox) {
+    inbox = await db.inbox.findFirst({
+      where: { twilioNumber: { not: null } },
+      include: { board: { include: { columns: true, fields: { include: { options: true } } } } },
+    });
+  }
+  if (!inbox) return;
+
+  // No launching ticket → thread onto a recent open call ticket for this number,
+  // else create one (same rules as inbound routing).
+  if (!ticketId) {
+    const columns = [...inbox.board.columns].sort((a, b) => a.position - b.position);
+    const colByStatus = (s: string) =>
+      columns.find((c) => c.name.trim().toLowerCase() === s) ?? columns[0];
+    const open = await db.ticket.findFirst({
+      where: {
+        inboxId: inbox.id,
+        customerPhone: opts.to,
+        status: { notIn: ["closed"] },
+        updatedAt: { gte: new Date(Date.now() - THREAD_WINDOW_MS) },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    if (open) {
+      ticketId = open.id;
+    } else {
+      const customer = await db.customer.findFirst({ where: { phone: opts.to } });
+      const newCol = colByStatus("new");
+      const last = await db.ticket.findFirst({
+        where: { columnId: newCol.id },
+        orderBy: { position: "desc" },
+      });
+      const number = await nextTicketNumber(inbox.id);
+      const created = await db.ticket.create({
+        data: {
+          number,
+          inboxId: inbox.id,
+          boardId: inbox.boardId,
+          columnId: newCol.id,
+          subject: `Call to ${formatPhone(opts.to)}`,
+          position: (last?.position ?? 0) + 1,
+          channel: "voice",
+          status: STATUSES.includes(newCol.name.trim().toLowerCase())
+            ? newCol.name.trim().toLowerCase()
+            : "new",
+          customerId: customer?.id ?? null,
+          customerName: customer?.name ?? formatPhone(opts.to),
+          customerPhone: opts.to,
+          lastMessageAt: new Date(),
+        },
+        select: { id: true },
+      });
+      const field = inbox.board.fields.find((f) => f.name === "Channel");
+      const opt = field?.options.find((o) => o.label.toLowerCase() === "phone");
+      if (field && opt) {
+        await db.ticketFieldValue.upsert({
+          where: { ticketId_fieldId: { ticketId: created.id, fieldId: field.id } },
+          create: { ticketId: created.id, fieldId: field.id, optionId: opt.id },
+          update: { optionId: opt.id },
+        });
+      }
+      ticketId = created.id;
+    }
+  }
+
+  // Validate the agent id before using it as authorId (FK safety).
+  let authorId: string | null = null;
+  if (opts.agentUserId) {
+    const u = await db.user.findUnique({ where: { id: opts.agentUserId }, select: { id: true } });
+    authorId = u?.id ?? null;
+  }
+
+  await db.message.create({
+    data: {
+      ticketId,
+      direction: "outbound",
+      authorId,
+      fromAddr: inbox.twilioNumber ?? "",
+      toAddr: opts.to,
+      subject: null,
+      bodyText: `📞 Outbound call to ${formatPhone(opts.to)}`,
+      provider: "twilio",
+      providerMessageId: opts.callSid,
+    },
+  });
+  await db.ticket.update({ where: { id: ticketId }, data: { lastMessageAt: new Date() } });
+}

@@ -71,6 +71,7 @@ export default async function BoardPage({
         status: t.status,
         customerName: t.customerName,
         customerEmail: t.customerEmail,
+        customerPhone: t.customerPhone,
         assigneeId: t.assigneeId,
         lastMessageAt: t.lastMessageAt ? t.lastMessageAt.toISOString() : null,
         createdAt: t.createdAt.toISOString(),

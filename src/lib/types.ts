@@ -52,6 +52,7 @@ export type TicketData = {
   status: string; // new | open | pending | solved | closed
   customerName: string | null;
   customerEmail: string | null;
+  customerPhone: string | null;
   assigneeId: string | null;
   lastMessageAt: string | null;
   createdAt: string;

@@ -514,6 +514,25 @@ export default function TicketModal({
             </select>
           )}
           <div className="flex-1" />
+          {ticket.customerPhone && (
+            <button
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("tc-desk:call", {
+                    detail: {
+                      to: ticket.customerPhone,
+                      ticketId: ticket.id,
+                      label: ticket.customerName ?? ticket.customerPhone,
+                    },
+                  }),
+                )
+              }
+              className="text-emerald-700 hover:text-emerald-800 text-sm font-medium px-2"
+              title={`Call ${ticket.customerPhone}`}
+            >
+              📞 Call
+            </button>
+          )}
           <div className="relative">
             <button
               onClick={() => (mergeOpen ? setMergeOpen(false) : openMerge())}

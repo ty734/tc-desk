@@ -53,6 +53,7 @@ export default function Softphone() {
   const [caller, setCaller] = useState("");
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [dialInput, setDialInput] = useState("");
 
   const deviceRef = useRef<TwDevice | null>(null);
   const incomingRef = useRef<TwCall | null>(null);
@@ -217,6 +218,58 @@ export default function Softphone() {
     setMuted(m);
   }
 
+  const placeCall = useCallback(
+    async (to: string, opts?: { ticketId?: string; brand?: string; label?: string }) => {
+      const device = deviceRef.current;
+      if (!device || activeRef.current || incomingRef.current) return;
+      try {
+        const call = await device.connect({
+          params: { To: to, ticketId: opts?.ticketId ?? "", brand: opts?.brand ?? "" },
+        });
+        activeRef.current = call;
+        setCaller(opts?.label?.trim() || prettyFrom(to));
+        setMuted(false);
+        setSeconds(0);
+        setPhase("active");
+        const started = Date.now();
+        stopCallTimer();
+        callTimer.current = window.setInterval(
+          () => setSeconds(Math.floor((Date.now() - started) / 1000)),
+          1000,
+        );
+        const end = () => {
+          stopCallTimer();
+          activeRef.current = null;
+          setPhase("ready");
+        };
+        call.on("disconnect", end);
+        call.on("error", end);
+      } catch (e) {
+        console.error("[softphone] outbound failed", e);
+      }
+    },
+    [stopCallTimer],
+  );
+
+  // Any part of the desk can start a call:
+  //   window.dispatchEvent(new CustomEvent("tc-desk:call",
+  //     { detail: { to, ticketId, brand, label } }))
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { to?: string; ticketId?: string; brand?: string; label?: string }
+        | undefined;
+      if (d?.to) placeCall(d.to, d);
+    };
+    window.addEventListener("tc-desk:call", handler as EventListener);
+    return () => window.removeEventListener("tc-desk:call", handler as EventListener);
+  }, [placeCall]);
+
+  function dialFromInput() {
+    const n = dialInput.trim();
+    if (n) placeCall(n, { label: n });
+  }
+
   if (phase === "off") return null;
 
   return (
@@ -266,24 +319,45 @@ export default function Softphone() {
           </div>
         </div>
       ) : (
-        <button
-          onClick={toggleAvailable}
-          disabled={busy}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 disabled:opacity-60"
-          title="Ring my browser when a call comes in"
-        >
-          <span className="flex items-center gap-2">
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${
-                available ? "bg-emerald-500" : "bg-gray-300"
-              }`}
-            />
-            <span className="font-medium">
-              {available ? "Available for calls" : "Not taking calls"}
+        <div className="p-3">
+          <button
+            onClick={toggleAvailable}
+            disabled={busy}
+            className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 disabled:opacity-60"
+            title="Ring my browser when a call comes in"
+          >
+            <span className="flex items-center gap-2">
+              <span
+                className={`inline-block h-2.5 w-2.5 rounded-full ${
+                  available ? "bg-emerald-500" : "bg-gray-300"
+                }`}
+              />
+              <span className="font-medium">
+                {available ? "Available for calls" : "Not taking calls"}
+              </span>
             </span>
-          </span>
-          <span className="text-xs text-gray-500">{available ? "On" : "Off"}</span>
-        </button>
+            <span className="text-xs text-gray-500">{available ? "On" : "Off"}</span>
+          </button>
+          <div className="mt-2 flex gap-2">
+            <input
+              value={dialInput}
+              onChange={(e) => setDialInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") dialFromInput();
+              }}
+              inputMode="tel"
+              placeholder="Dial a number…"
+              className="min-w-0 flex-1 rounded-lg border border-black/10 px-2 py-1.5 text-sm outline-none focus:border-emerald-500"
+            />
+            <button
+              onClick={dialFromInput}
+              disabled={!dialInput.trim()}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+            >
+              Call
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
