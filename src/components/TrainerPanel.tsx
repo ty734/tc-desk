@@ -38,6 +38,16 @@ export default function TrainerPanel() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
+  // Auto-grow the composer so a multi-line pre-seed (e.g. the "Train this"
+  // context, which is several lines) is fully visible instead of a 1-line
+  // sliver. Runs on every input change and whenever the panel opens/seeds.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [input, open]);
+
   // Open pre-loaded from elsewhere (e.g. TicketModal's "Train this" button).
   useEffect(() => {
     function onOpen(e: Event) {
@@ -195,7 +205,7 @@ export default function TrainerPanel() {
               <div className="flex items-end gap-2">
                 <textarea
                   ref={inputRef}
-                  rows={1}
+                  rows={3}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -205,7 +215,7 @@ export default function TrainerPanel() {
                     }
                   }}
                   placeholder="Describe the correction, or ask what the bot knows…"
-                  className="flex-1 resize-none max-h-32 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="flex-1 resize-y min-h-[72px] border border-gray-300 rounded-xl px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <button
                   onClick={() => send(input)}
