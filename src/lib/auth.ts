@@ -66,6 +66,25 @@ export async function getCurrentUser() {
   return session.user;
 }
 
+/**
+ * KB Trainer access — a small email allow-list (env `KB_TRAINER_EMAILS`,
+ * comma-separated) rather than a role column, matching how `AGENT_USER_EMAIL`
+ * already gates the agent path. Only these users see the Trainer widget and can
+ * write to the knowledge base. Fails CLOSED: if the env var is unset, no one has
+ * access (set it in the tc-desk Vercel project to turn the feature on).
+ */
+export function kbTrainerEmails(): string[] {
+  return (process.env.KB_TRAINER_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function isKbTrainer(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return kbTrainerEmails().includes(email.toLowerCase());
+}
+
 /** Returns the user's membership row for the board, else null. */
 export async function getBoardMembership(userId: string, boardId: string) {
   return db.boardMember.findUnique({

@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getCurrentUser, getBoardMembership } from "@/lib/auth";
+import { getCurrentUser, getBoardMembership, isKbTrainer } from "@/lib/auth";
 import BoardView from "@/components/BoardView";
 import type { BoardData } from "@/lib/types";
 
@@ -86,6 +86,7 @@ export default async function BoardPage({
       currentUserId={user.id}
       currentUserName={user.name}
       isOwner={membership.role === "owner"}
+      canTrain={isKbTrainer(user.email)}
       initialTicketId={initialTicketId ?? null}
     />
   );

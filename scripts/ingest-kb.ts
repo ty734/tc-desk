@@ -82,15 +82,21 @@ async function main() {
     }
   }
 
-  const del = await db.kbChunk.deleteMany({ where: { inboxId: inbox.id } });
+  // Wipe ONLY machine-ingested chunks. Human corrections authored via the KB
+  // Trainer (origin = 'trainer') are permanent and survive every re-ingest —
+  // otherwise the team's training would be blown away on the next reload.
+  const del = await db.kbChunk.deleteMany({ where: { inboxId: inbox.id, origin: "ingest" } });
   await db.kbChunk.createMany({
     data: rows.map((r) => ({
       inboxId: inbox.id, source: r.source, title: r.title, content: r.content, scope: r.scope,
+      origin: "ingest",
     })),
   });
+  const kept = await db.kbChunk.count({ where: { inboxId: inbox.id, origin: "trainer" } });
   const clinical = rows.filter((r) => r.scope === "clinical").length;
-  console.log(`[ingest] ${brand}: replaced ${del.count} chunks with ${rows.length} from ${folders.length} folder(s)`);
+  console.log(`[ingest] ${brand}: replaced ${del.count} ingested chunks with ${rows.length} from ${folders.length} folder(s)`);
   console.log(`[ingest] scope: ${rows.length - clinical} public / ${clinical} clinical (clinical is hidden from the customer bot)`);
+  console.log(`[ingest] preserved ${kept} trainer-authored correction(s) (never wiped)`);
   await db.$disconnect();
 }
 main().catch((e) => {

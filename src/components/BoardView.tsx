@@ -308,12 +308,14 @@ export default function BoardView({
   currentUserId,
   currentUserName,
   isOwner,
+  canTrain = false,
   initialTicketId,
 }: {
   board: BoardData;
   currentUserId: string;
   currentUserName: string;
   isOwner: boolean;
+  canTrain?: boolean;
   initialTicketId: string | null;
 }) {
   const router = useRouter();
@@ -946,6 +948,7 @@ export default function BoardView({
           members={members}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
+          canTrain={canTrain}
           onClose={() => setOpenTicketId(null)}
           onPatch={(patch) => {
             patchTicketState(openTicket.id, patch);

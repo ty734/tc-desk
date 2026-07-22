@@ -251,12 +251,20 @@ model KbChunk {
   // "public" = the storefront bot may retrieve it. "clinical" = Dr. Michelle's
   // dental-practice content (root canals, implants, ozone...); agents only.
   scope     String                 @default("public")
+  // "ingest" = machine-loaded from the source folder; wiped and reloaded on
+  // every scripts/ingest-kb.ts run. "trainer" = a human correction authored via
+  // the KB Trainer widget; PERMANENT — re-ingest never touches it, so the
+  // team's training accumulates instead of being blown away on the next reload.
+  origin    String                 @default("ingest")
+  createdBy String? // email of the CS manager who authored/last edited a trainer chunk
   embedding Unsupported("vector")?
   createdAt DateTime               @default(now())
+  updatedAt DateTime               @default(now()) @updatedAt
   inbox     Inbox                  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
 
   @@index([inboxId])
   @@index([inboxId, scope])
+  @@index([inboxId, origin])
 }
 
 model CustomField {

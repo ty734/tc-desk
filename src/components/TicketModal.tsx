@@ -110,6 +110,7 @@ export default function TicketModal({
   members,
   currentUserId,
   currentUserName,
+  canTrain = false,
   onClose,
   onPatch,
   onSave,
@@ -124,6 +125,7 @@ export default function TicketModal({
   members: Member[];
   currentUserId: string;
   currentUserName: string;
+  canTrain?: boolean;
   onClose: () => void;
   onPatch: (patch: Partial<TicketData>) => void;
   onSave: (body: Record<string, unknown>) => void;
@@ -873,6 +875,25 @@ export default function TicketModal({
                 <span> — review and edit before sending.</span>
                 {lastInboundSocial.aiFlagReason && (
                   <div className="font-semibold mt-0.5">⚠️ Flagged: {lastInboundSocial.aiFlagReason}</div>
+                )}
+                {canTrain && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const comment = (lastInboundSocial.bodyText ?? "").trim();
+                      const draft = (lastInboundSocial.aiDraft ?? "").trim();
+                      const seed =
+                        `This AI draft was wrong and I want to correct what the bot knows.\n\n` +
+                        `Customer ${isSocialComment ? "comment" : "message"}: "${comment}"\n` +
+                        `AI draft: "${draft}"\n\n` +
+                        `The correct information is: `;
+                      window.dispatchEvent(new CustomEvent("kb-trainer:open", { detail: { seed } }));
+                    }}
+                    className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-700 hover:bg-emerald-800 text-white font-semibold px-2.5 py-1 text-[11px]"
+                    title="Correct the knowledge base this reply was drafted from"
+                  >
+                    🎓 Train this
+                  </button>
                 )}
               </div>
             )}

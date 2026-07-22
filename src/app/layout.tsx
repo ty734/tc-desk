@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isKbTrainer } from "@/lib/auth";
 import AskPanel from "@/components/AskPanel";
+import TrainerPanel from "@/components/TrainerPanel";
 import LiveChatWatcher from "@/components/LiveChatWatcher";
 import Softphone from "@/components/Softphone";
 
@@ -26,11 +27,14 @@ export default async function RootLayout({
 }>) {
   // Only mount the internal copilot for logged-in agents.
   const user = await getCurrentUser();
+  const canTrain = isKbTrainer(user?.email);
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         {children}
         {user && <AskPanel />}
+        {/* KB Trainer is write-access — only the KB_TRAINER_EMAILS allow-list sees it. */}
+        {user && canTrain && <TrainerPanel />}
         {user && <LiveChatWatcher />}
         {user && <Softphone />}
       </body>
