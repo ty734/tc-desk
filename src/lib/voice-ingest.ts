@@ -17,6 +17,16 @@ import { downloadTwilioRecording, formatPhone } from "@/lib/twilio";
 const STATUSES = ["new", "open", "pending", "solved", "closed"];
 const THREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // reuse a recent open ticket per caller
 
+// Placeholder body written when a call first lands, before we know how it ends.
+// Exported so the "did anything overwrite this yet?" checks can't drift from it.
+export const CALL_PENDING_BODY = "📞 Incoming call — in progress…";
+
+/** "1:05" from seconds; "" when we have no usable duration. */
+function durationStamp(sec: number | null): string {
+  if (sec == null || sec <= 0) return "";
+  return ` (${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")})`;
+}
+
 /** Resolve the brand/inbox that owns a dialed Twilio number, with its board. */
 export function inboxByNumber(toNumber: string) {
   return db.inbox.findUnique({
@@ -123,7 +133,7 @@ export async function routeInboundCall(
       fromAddr: from,
       toAddr: inbox.twilioNumber ?? "",
       subject: null,
-      bodyText: "📞 Incoming call — voicemail pending…",
+      bodyText: CALL_PENDING_BODY,
       provider: "twilio",
       providerMessageId: callSid,
     },
@@ -167,8 +177,7 @@ export async function attachVoicemailRecording(opts: {
     },
   });
 
-  const d = opts.durationSec;
-  const stamp = d != null && d > 0 ? ` (${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")})` : "";
+  const stamp = durationStamp(opts.durationSec);
   await db.message.update({
     where: { id: message.id },
     data: { bodyText: `📞 Voicemail${stamp} — audio attached.` },
@@ -194,6 +203,33 @@ export async function attachTranscript(callSid: string, text: string): Promise<v
   });
 }
 
+/**
+ * Mark a call as answered by an agent (the <Dial> finished with someone on the
+ * line, so there is no voicemail coming). Without this the placeholder body
+ * would sit on the ticket forever, reading as if a voicemail were still pending.
+ *
+ * Only overwrites the placeholder — a recording or transcript that somehow beat
+ * us here is the better record and is left alone. Idempotent on callback retry.
+ */
+export async function markCallAnswered(callSid: string, durationSec: number | null): Promise<void> {
+  const message = await db.message.findFirst({
+    where: { providerMessageId: callSid },
+    select: { id: true, bodyText: true, ticketId: true },
+  });
+  if (!message || message.bodyText !== CALL_PENDING_BODY) return;
+
+  await db.message.update({
+    where: { id: message.id },
+    data: { bodyText: `📞 Call answered${durationStamp(durationSec)}.` },
+  });
+  await db.ticket.update({ where: { id: message.ticketId }, data: { lastMessageAt: new Date() } });
+}
+
+// NOTE: a caller who hangs up mid-ring, or at the voicemail beep without
+// speaking, leaves the placeholder in place — no callback reliably fires for
+// that case without adding a per-number statusCallback. "In progress…" is at
+// least honest; the old wording claimed a voicemail was coming.
+
 // ---- Outbound (Phase 3) ------------------------------------------------------
 
 function inboxWithBoardById(id: string) {
@@ -203,9 +239,23 @@ function inboxWithBoardById(id: string) {
   });
 }
 
+/** Every brand with a voice number configured, stable order. */
+export function voiceInboxes() {
+  return db.inbox.findMany({
+    where: { twilioNumber: { not: null } },
+    select: { brand: true, name: true, twilioNumber: true },
+    orderBy: { brand: "asc" },
+  });
+}
+
 /**
- * The caller-ID number an outbound call should show, resolved by ticket → brand
- * → any configured voice number. Cheap (no board) — used to build the <Dial>.
+ * The caller-ID number an outbound call should show, resolved by ticket → brand.
+ * Cheap (no board) — used to build the <Dial>.
+ *
+ * Returns null rather than guessing when neither is given: with more than one
+ * brand on the account, a fallback would happily show a Living Well customer the
+ * Longer Together number. Callers must pass a ticketId or an explicit brand —
+ * the softphone dialer has a brand picker for exactly this reason.
  */
 export async function resolveOutboundCallerId(opts: {
   ticketId?: string;
@@ -225,11 +275,9 @@ export async function resolveOutboundCallerId(opts: {
     });
     if (inbox?.twilioNumber) return inbox.twilioNumber;
   }
-  const any = await db.inbox.findFirst({
-    where: { twilioNumber: { not: null } },
-    select: { twilioNumber: true },
-  });
-  return any?.twilioNumber ?? null;
+  // Single-brand accounts have no ambiguity, so falling back is still safe there.
+  const all = await voiceInboxes();
+  return all.length === 1 ? all[0].twilioNumber : null;
 }
 
 /**
@@ -266,8 +314,12 @@ export async function logOutboundCall(opts: {
     });
   }
   if (!inbox) {
-    inbox = await db.inbox.findFirst({
-      where: { twilioNumber: { not: null } },
+    // Same rule as resolveOutboundCallerId: only assume the brand when there is
+    // exactly one, otherwise the call would be logged onto another brand's board.
+    const voice = await voiceInboxes();
+    if (voice.length !== 1) return;
+    inbox = await db.inbox.findUnique({
+      where: { brand: voice[0].brand },
       include: { board: { include: { columns: true, fields: { include: { options: true } } } } },
     });
   }

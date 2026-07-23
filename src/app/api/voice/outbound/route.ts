@@ -37,9 +37,15 @@ export async function POST(req: Request) {
     return twiml(`<Say voice="alice">Sorry, that number can't be dialed. Goodbye.</Say><Hangup/>`);
   }
 
+  // Null means "no number configured" OR "more than one brand and nothing told
+  // us which" — we refuse rather than risk showing the wrong brand's caller ID.
   const callerId = await resolveOutboundCallerId({ ticketId, brand });
   if (!callerId) {
-    return twiml(`<Say voice="alice">No outbound number is configured. Goodbye.</Say><Hangup/>`);
+    console.error("[voice/outbound] no caller ID", { ticketId, brand, to });
+    return twiml(
+      `<Say voice="alice">This call could not be placed because no outbound ` +
+        `number was selected. Goodbye.</Say><Hangup/>`,
+    );
   }
 
   // Log the call without blocking it if the DB write hiccups.
