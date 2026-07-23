@@ -46,6 +46,8 @@ function prettyFrom(raw?: string): string {
 
 type Phase = "off" | "ready" | "incoming" | "active";
 
+type VoiceBrand = { brand: string; name: string; twilioNumber: string | null };
+
 export default function Softphone() {
   const [phase, setPhase] = useState<Phase>("off");
   const [available, setAvailable] = useState(false);
@@ -55,6 +57,8 @@ export default function Softphone() {
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const [dialInput, setDialInput] = useState("");
+  const [brands, setBrands] = useState<VoiceBrand[]>([]);
+  const [dialBrand, setDialBrand] = useState("");
 
   const deviceRef = useRef<TwDevice | null>(null);
   const incomingRef = useRef<TwCall | null>(null);
@@ -156,6 +160,20 @@ export default function Softphone() {
     fetch("/api/voice/presence")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setAvailable(!!d.available))
+      .catch(() => {});
+  }, []);
+
+  // Which brands this desk can dial out as. A manual dial has no ticket to infer
+  // the brand from, so the agent picks the caller ID explicitly — otherwise a
+  // Living Well customer could see the Longer Together number.
+  useEffect(() => {
+    fetch("/api/voice/brands")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list: VoiceBrand[] = d?.brands ?? [];
+        setBrands(list);
+        setDialBrand((b) => b || list[0]?.brand || "");
+      })
       .catch(() => {});
   }, []);
 
@@ -282,7 +300,7 @@ export default function Softphone() {
 
   function dialFromInput() {
     const n = dialInput.trim();
-    if (n) placeCall(n, { label: n });
+    if (n) placeCall(n, { label: n, brand: dialBrand || undefined });
   }
 
   if (phase === "off") return null;
@@ -353,6 +371,24 @@ export default function Softphone() {
             </span>
             <span className="text-xs text-gray-500">{available ? "On" : "Off"}</span>
           </button>
+          {brands.length > 1 && (
+            <label className="mt-2 flex items-center gap-2 px-2 text-xs text-gray-500">
+              <span className="shrink-0">Call as</span>
+              <select
+                value={dialBrand}
+                onChange={(e) => setDialBrand(e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-black/10 px-1.5 py-1 text-xs text-gray-800 outline-none focus:border-emerald-500"
+                title="Which brand's number the customer will see"
+              >
+                {brands.map((b) => (
+                  <option key={b.brand} value={b.brand}>
+                    {b.name}
+                    {b.twilioNumber ? ` · ${prettyFrom(b.twilioNumber)}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="mt-2 flex gap-2">
             <input
               value={dialInput}
