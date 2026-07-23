@@ -45,6 +45,15 @@ export default function AskPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Auto-grow the composer so longer questions are fully visible instead of a
+  // 1-line sliver. Runs on every input change and whenever the panel opens.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [input, open]);
+
   async function send(text: string) {
     const q = text.trim();
     if (!q || busy) return;
@@ -200,7 +209,7 @@ export default function AskPanel() {
               <div className="flex items-end gap-2">
                 <textarea
                   ref={inputRef}
-                  rows={1}
+                  rows={3}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -210,7 +219,7 @@ export default function AskPanel() {
                     }
                   }}
                   placeholder="Ask a question or look up a customer..."
-                  className="flex-1 resize-none max-h-32 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="flex-1 resize-y min-h-[72px] border border-gray-300 rounded-xl px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-500"
                 />
                 <button
                   onClick={() => send(input)}
